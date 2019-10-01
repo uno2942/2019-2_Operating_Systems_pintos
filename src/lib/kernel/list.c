@@ -374,7 +374,7 @@ find_end_of_run (struct list_elem *a, struct list_elem *b,
 /* Merges A0 through A1B0 (exclusive) with A1B0 through B1
    (exclusive) to form a combined range also ending at B1
    (exclusive).  Both input ranges must be nonempty and sorted in
-   nondecreasing order according to LESS given auxiliary data
+   nondecreasing order according to less given auxiliary data
    AUX.  The output range will be sorted the same way. */
 static void
 inplace_merge (struct list_elem *a0, struct list_elem *a1b0,
