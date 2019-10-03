@@ -83,6 +83,11 @@ thread_priority_less (const struct list_elem *a,
     return false;
 }
 
+int
+max(int a, int b)
+{
+  return a>=b ? a : b;
+}
 /* Initializes the threading system by transforming the code
    that's currently running into a thread.  This can't work in
    general and it is possible in this case only because loader.S
@@ -257,7 +262,6 @@ thread_unblock (struct thread *t)
   ASSERT (t->status == THREAD_BLOCKED);
   list_push_back (&ready_list, &t->elem);
   t->status = THREAD_READY;
-  // Why???????(Dangerous)
   intr_set_level (old_level);
 }
 
@@ -282,7 +286,7 @@ thread_current (void)
      of stack, so a few big automatic arrays or moderate
      recursion can cause stack overflow. */
   ASSERT (is_thread (t));
-  //ASSERT (t->status == THREAD_RUNNING);
+  ASSERT (t->status == THREAD_RUNNING);
 
   return t;
 }
@@ -351,12 +355,6 @@ thread_foreach (thread_action_func *func, void *aux)
       struct thread *t = list_entry (e, struct thread, allelem);
       func (t, aux);
     }
-}
-
-int
-max(int a, int b)
-{
-  return a>=b ? a : b;
 }
 
 /* Sets the current thread's priority to NEW_PRIORITY. */
