@@ -71,6 +71,19 @@ static void schedule (void);
 void thread_schedule_tail (struct thread *prev);
 static tid_t allocate_tid (void);
 
+static struct thread *main_thread;
+bool
+thread_priority_less (const struct list_elem *a,
+                             const struct list_elem *b,
+                             void *aux)
+                             {
+  struct thread *ta = list_entry (a, struct thread, elem);
+  struct thread *tb = list_entry (b, struct thread, elem);
+  if(ta->priority>tb->priority)
+    return true;
+    return false;
+}
+
 /* Initializes the threading system by transforming the code
    that's currently running into a thread.  This can't work in
    general and it is possible in this case only because loader.S
@@ -198,8 +211,9 @@ thread_create (const char *name, int priority,
   sf = alloc_frame (t, sizeof *sf);
   sf->eip = switch_entry;
   sf->ebp = 0;
-
-  /* Add to run queue. */
+    /* Add to run queue. */
+  if(thread_current()->priority == 31)
+    main_thread=thread_current();
   thread_unblock (t);
 
   return tid;
@@ -214,6 +228,7 @@ thread_create (const char *name, int priority,
 void
 thread_block (void) 
 {
+//  printf("%s", thread_current ()->name);
   ASSERT (!intr_context ());
   ASSERT (intr_get_level () == INTR_OFF);
 
@@ -241,6 +256,12 @@ thread_unblock (struct thread *t)
   list_push_back (&ready_list, &t->elem);
   t->status = THREAD_READY;
   intr_set_level (old_level);
+  // Why???????(Dangerous)
+  if ( idle_thread != NULL && idle_thread->status == THREAD_BLOCKED 
+       && thread_current ()->priority < t->priority)
+    {
+      thread_yield();
+    }
 }
 
 /* Returns the name of the running thread. */
@@ -297,17 +318,7 @@ thread_exit (void)
   NOT_REACHED ();
 }
 
-bool
-thread_priority_less_push_back(const struct list_elem *a,
-                             const struct list_elem *b,
-                             void *aux)
-{
-  struct thread *ta = list_entry (a, struct thread, elem);
-  struct thread *tb = list_entry (b, struct thread, elem);
-  if(ta->priority>tb->priority)
-    return true;
-  return false;
-}
+
 /* Yields the CPU.  The current thread is not put to sleep and
    may be scheduled again immediately at the scheduler's whim. */
 void
@@ -321,9 +332,7 @@ thread_yield (void)
   old_level = intr_disable ();
   if (cur != idle_thread) 
     {
-      list_insert_ordered(&ready_list, &cur->elem, 
-                          thread_priority_less_push_back, NULL);
-      // list_push_back (&ready_list, &cur->elem);
+      list_push_back (&ready_list, &cur->elem);
     }
   cur->status = THREAD_READY;
   schedule ();
@@ -360,8 +369,11 @@ thread_set_priority (int new_priority)
 {
   int old_priority = thread_current ()->priority;
   thread_current ()->priority = new_priority;
-  if(old_priority < new_priority)
-    thread_yield ();
+  
+  if(old_priority > new_priority)
+    {
+      thread_yield ();
+    }
 }
 
 /* Returns the current thread's priority. */
@@ -514,25 +526,14 @@ alloc_frame (struct thread *t, size_t size)
    will be in the run queue.)  If the run queue is empty, return
    idle_thread. */
 
-bool
-thread_priority_less (const struct list_elem *a,
-                             const struct list_elem *b,
-                             void *aux)
-                             {
-  struct thread *ta = list_entry (a, struct thread, elem);
-  struct thread *tb = list_entry (b, struct thread, elem);
-  if(ta->priority>tb->priority)
-    return true;
-  else
-    return false;
-}
-
 static struct thread *
 next_thread_to_run (void) 
 {
   struct list_elem *e;
   if (list_empty (&ready_list))
-    return idle_thread;
+    {
+      return idle_thread;
+    }
   else
   {
     list_sort(&ready_list, thread_priority_less, NULL);
@@ -599,7 +600,7 @@ schedule (void)
   struct thread *cur = running_thread ();
   struct thread *next = next_thread_to_run ();
   struct thread *prev = NULL;
-
+//  printf("\n%s -> %s\n", cur->name, next->name);
   ASSERT (intr_get_level () == INTR_OFF);
   ASSERT (cur->status != THREAD_RUNNING);
   ASSERT (is_thread (next));
@@ -615,7 +616,6 @@ allocate_tid (void)
 {
   static tid_t next_tid = 1;
   tid_t tid;
-
   lock_acquire (&tid_lock);
   tid = next_tid++;
   lock_release (&tid_lock);
