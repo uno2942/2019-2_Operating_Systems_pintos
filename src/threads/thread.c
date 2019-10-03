@@ -71,7 +71,6 @@ static void schedule (void);
 void thread_schedule_tail (struct thread *prev);
 static tid_t allocate_tid (void);
 
-static struct thread *main_thread;
 bool
 thread_priority_less (const struct list_elem *a,
                              const struct list_elem *b,
@@ -212,10 +211,13 @@ thread_create (const char *name, int priority,
   sf->eip = switch_entry;
   sf->ebp = 0;
     /* Add to run queue. */
-  if(thread_current()->priority == 31)
-    main_thread=thread_current();
+
   thread_unblock (t);
 
+  if (thread_current ()->priority < t->priority)
+    {
+      thread_yield();
+    }
   return tid;
 }
 
@@ -231,7 +233,7 @@ thread_block (void)
 //  printf("%s", thread_current ()->name);
   ASSERT (!intr_context ());
   ASSERT (intr_get_level () == INTR_OFF);
-
+//  printf("%s is blocked\n", thread_current ()->name);
   thread_current ()->status = THREAD_BLOCKED;
   schedule ();
 }
@@ -256,11 +258,6 @@ thread_unblock (struct thread *t)
   list_push_back (&ready_list, &t->elem);
   t->status = THREAD_READY;
   // Why???????(Dangerous)
-  if ( idle_thread != NULL && idle_thread->status == THREAD_BLOCKED 
-       && thread_current ()->priority < t->priority)
-    {
-      thread_yield();
-    }
   intr_set_level (old_level);
 }
 
@@ -285,7 +282,7 @@ thread_current (void)
      of stack, so a few big automatic arrays or moderate
      recursion can cause stack overflow. */
   ASSERT (is_thread (t));
-  ASSERT (t->status == THREAD_RUNNING);
+  //ASSERT (t->status == THREAD_RUNNING);
 
   return t;
 }
@@ -599,6 +596,7 @@ schedule (void)
 {
   struct thread *cur = running_thread ();
   struct thread *next = next_thread_to_run ();
+//  printf("next_to_run: %s\n", next->name);
   struct thread *prev = NULL;
 //  printf("\n%s -> %s\n", cur->name, next->name);
   ASSERT (intr_get_level () == INTR_OFF);
