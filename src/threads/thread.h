@@ -92,11 +92,11 @@ struct thread
     int priority_origin;                
     int64_t endtime;
     struct thread* blocking_thread;
-    struct list donation_list;
     struct list_elem allelem;           /* List element for all threads list. */
 
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /* List element. */
+    struct list_elem donation_elem;
 
 #ifdef USERPROG
     /* Owned by userprog/process.c. */

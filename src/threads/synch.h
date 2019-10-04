@@ -10,6 +10,7 @@ struct semaphore
     unsigned value;             /* Current value. */
     struct thread *sema_holder; //if it is set, then it is from lock.
     struct list waiters;        /* List of waiting threads. */
+    struct list donation_list;
   };
 
 void sema_init (struct semaphore *, unsigned value);

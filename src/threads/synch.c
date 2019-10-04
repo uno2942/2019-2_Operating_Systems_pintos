@@ -49,6 +49,7 @@ sema_init (struct semaphore *sema, unsigned value)
   sema->value = value;
   sema->sema_holder = NULL;
   list_init (&sema->waiters);
+  list_init (&sema->donation_list); 
 }
 
 /* Down or "P" operation on a semaphore.  Waits for SEMA's value
@@ -73,6 +74,7 @@ void
 sema_down (struct semaphore *sema) 
 {
   enum intr_level old_level;
+  int i=0;
   ASSERT (sema != NULL);
   ASSERT (!intr_context ());
 
@@ -81,18 +83,16 @@ sema_down (struct semaphore *sema)
   {    
     if(sema->sema_holder != NULL && thread_current()->priority > sema->sema_holder->priority)
     {
-      struct thread* t = thread_current();
-      list_push_front(&sema->sema_holder->donation_list, &t->elem);
-      
+      list_push_front(&sema->donation_list, &thread_current()->donation_elem);
       int temp = sema->sema_holder->priority;
-      sema->sema_holder->priority = t->priority;
-      t->priority = temp;
+      sema->sema_holder->priority = thread_current()->priority;
+      thread_current()->priority = temp;
       
       if(sema->sema_holder->status == THREAD_BLOCKED)
         thread_unblock(sema->sema_holder);
     }
     if(thread_current()->blocking_thread == NULL)
-    {  
+    { 
       list_push_back (&sema->waiters, &thread_current ()->elem);
       thread_current()->blocking_thread = sema->sema_holder;
     }
@@ -275,16 +275,13 @@ lock_release (struct lock *lock)
   enum intr_level old_level;
   int temp;
   struct thread *t;
-  int i=0;
   ASSERT (lock != NULL);
   ASSERT (lock_held_by_current_thread (lock));
+  
   old_level = intr_disable ();
-  for (e = list_begin (&lock->holder->donation_list); e != list_end (&lock->holder->donation_list);
-       e = list_next (e))
+  while(!list_empty(&(&lock->semaphore)->donation_list))
     {
-      i++;
-      t = list_entry (e, struct thread, allelem);
-//      printf("%d's thread name: %s\n", i, t->name);
+      t = list_entry (list_pop_front(&(&lock->semaphore)->donation_list), struct thread, donation_elem);
       temp = lock->holder->priority;
       lock->holder->priority = t->priority;
       t->priority = temp;
@@ -292,6 +289,7 @@ lock_release (struct lock *lock)
   lock->holder = NULL;
   (&lock->semaphore)->sema_holder = NULL;
   sema_up (&lock->semaphore);
+
   intr_set_level (old_level);
 }
 

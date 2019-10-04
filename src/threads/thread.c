@@ -198,6 +198,7 @@ thread_create (const char *name, int priority,
 
   /* Initialize thread. */
   init_thread (t, name, priority);
+//  printf("%s -> %s\n", t->name, thread_current()->name);
   t->priority_origin = priority;
   tid = t->tid = allocate_tid ();
 
@@ -221,6 +222,7 @@ thread_create (const char *name, int priority,
 
   if (thread_current ()->priority < t->priority)
     {
+//      printf("%s -> %s\n", t->name, thread_current()->name);
       thread_yield();
     }
   return tid;
@@ -499,8 +501,10 @@ init_thread (struct thread *t, const char *name, int priority)
 
   old_level = intr_disable ();
   list_push_back (&all_list, &t->allelem);
-  list_init(&t->donation_list); 
+
+  //Related to lock
   t->blocking_thread = NULL;
+  
   intr_set_level (old_level);
 }
 
