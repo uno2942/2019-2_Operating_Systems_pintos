@@ -91,15 +91,15 @@ timer_elapsed (int64_t then)
 /* Sleeps for approximately TICKS timer ticks.  Interrupts must
    be turned on. */
 void
-timer_sleep (int64_t ticks) 
+timer_sleep (int64_t tick) 
 {
   int64_t start = timer_ticks ();
   enum intr_level old_level;
   old_level = intr_disable ();
-  thread_current ()->endtime = start + ticks;
+  thread_current ()->endtime = start + tick;
  // printf("need to sleep, tid: %d, %d\n", thread_current ()->tid, start + ticks);
   list_push_back (&sleep_list, &thread_current ()->elem);
-  while(&thread_current ()->endtime <= ticks)
+  while(thread_current ()->endtime > ticks)
     {
       thread_block();
     }
