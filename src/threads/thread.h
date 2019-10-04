@@ -80,6 +80,7 @@ typedef int tid_t;
    only because they are mutually exclusive: only a thread in the
    ready state is on the run queue, whereas only a thread in the
    blocked state is on a semaphore wait list. */
+   
 struct thread
   {
     /* Owned by thread.c. */
@@ -90,6 +91,7 @@ struct thread
     int priority;                       /* Priority. */
     int priority_origin;                
     int64_t endtime;
+    struct thread* blocking_thread;
     struct list donation_list;
     struct list_elem allelem;           /* List element for all threads list. */
 

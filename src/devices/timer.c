@@ -99,7 +99,11 @@ timer_sleep (int64_t ticks)
   thread_current ()->endtime = start + ticks;
  // printf("need to sleep, tid: %d, %d\n", thread_current ()->tid, start + ticks);
   list_push_back (&sleep_list, &thread_current ()->elem);
-  thread_block();
+  while(&thread_current ()->endtime <= ticks)
+    {
+      thread_block();
+    }
+  
 //  printf("escaped %d\n", thread_current ()->tid);
   intr_set_level (old_level);
 

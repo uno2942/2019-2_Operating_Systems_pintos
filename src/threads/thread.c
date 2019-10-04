@@ -105,7 +105,7 @@ void
 thread_init (void) 
 {
   ASSERT (intr_get_level () == INTR_OFF);
-
+  
   lock_init (&tid_lock);
   list_init (&ready_list);
   list_init (&all_list);
@@ -216,7 +216,7 @@ thread_create (const char *name, int priority,
   sf->eip = switch_entry;
   sf->ebp = 0;
     /* Add to run queue. */
-
+   
   thread_unblock (t);
 
   if (thread_current ()->priority < t->priority)
@@ -499,6 +499,8 @@ init_thread (struct thread *t, const char *name, int priority)
 
   old_level = intr_disable ();
   list_push_back (&all_list, &t->allelem);
+  list_init(&t->donation_list); 
+  t->blocking_thread = NULL;
   intr_set_level (old_level);
 }
 
@@ -524,7 +526,6 @@ alloc_frame (struct thread *t, size_t size)
 static struct thread *
 next_thread_to_run (void) 
 {
-  struct list_elem *e;
   if (list_empty (&ready_list))
     {
       return idle_thread;
