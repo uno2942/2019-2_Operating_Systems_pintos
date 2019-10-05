@@ -365,7 +365,7 @@ thread_set_priority (int new_priority)
 {
   int old_priority = thread_current ()->priority;
   thread_current ()->priority = new_priority;
-  
+  thread_current ()->priority_origin = thread_current ()->priority;
   if(old_priority > new_priority)
     {
       thread_yield ();
@@ -376,7 +376,7 @@ thread_set_priority (int new_priority)
 int
 thread_get_priority (void) 
 {
-  return max(thread_current ()->priority, thread_current ()->priority_origin);
+  return max(thread_current ()->priority,thread_current ()->priority_origin);
 }
 
 /* Sets the current thread's nice value to NICE. */

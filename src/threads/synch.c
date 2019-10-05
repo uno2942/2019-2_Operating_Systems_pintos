@@ -211,9 +211,9 @@ lock_acquire (struct lock *lock)
 
 while(lock->holder != NULL && thread_current()->priority > lock->holder->priority)
   {
-    struct lock* l=lock;
+      struct lock* l=lock;
     struct thread* t=lock->holder;
-    while(t->blocking_lock!=NULL){
+    while(t->blocking_lock!= NULL && t->blocking_lock->holder!=NULL){
       l = t->blocking_lock;
       t = t->blocking_lock->holder;
     }
@@ -282,8 +282,21 @@ lock_release (struct lock *lock)
   while(!list_empty(&lock->donation_thread_list))
   {
     t = list_entry (list_pop_front(&lock->donation_thread_list), struct thread, donation_elem);
-    t->priority = t->priority_origin;
-  }
+    int m = t->priority_origin;
+
+    for (e = list_begin (&t->lock_list); e != list_end (&t->lock_list);
+        e = list_next (e))
+    {
+      struct lock *l = list_entry (e, struct lock, elem);
+      if(!list_empty(&l->donation_thread_list))
+      {
+      m = max (m,
+          list_entry (list_begin(&l->donation_thread_list), struct thread, donation_elem)->priority_origin);
+      }
+    }
+    t->priority = m;
+
+    }
 
   int m = thread_current()->priority_origin;
   for (e = list_begin (lock_list); e != list_end (lock_list);
@@ -293,11 +306,10 @@ lock_release (struct lock *lock)
     if(!list_empty(&l->donation_thread_list))
     {
     m = max (m,
-        list_entry (list_begin(&l->donation_thread_list), struct thread, donation_elem)->priority);
+        list_entry (list_begin(&l->donation_thread_list), struct thread, donation_elem)->priority_origin);
     }
   }
   thread_current()->priority = m;
-
   lock->holder = NULL;
   sema_up (&lock->semaphore);
 

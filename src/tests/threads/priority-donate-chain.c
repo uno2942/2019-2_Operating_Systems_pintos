@@ -58,7 +58,7 @@ test_priority_donate_chain (void)
 
   lock_acquire (&locks[0]);
   msg ("%s got lock.", thread_name ());
-
+  ASSERT(thread_get_priority() == PRI_MIN);
   for (i = 1; i < NESTING_DEPTH; i++)
     {
       char name[16];
