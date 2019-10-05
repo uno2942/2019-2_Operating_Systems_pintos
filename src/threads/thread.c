@@ -504,7 +504,7 @@ init_thread (struct thread *t, const char *name, int priority)
 
   //Related to lock
   t->blocking_lock = NULL;
-  list_init(&t->lock_to_solve_list);
+  list_init(&t->lock_list);
 
   intr_set_level (old_level);
 }
