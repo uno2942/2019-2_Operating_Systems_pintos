@@ -111,7 +111,12 @@ struct thread
    If true, use multi-level feedback queue scheduler.
    Controlled by kernel command-line option "-o mlfqs". */
 extern bool thread_mlfqs;
-
+bool
+thread_priority_less (const struct list_elem *a,
+                             const struct list_elem *b,
+                             void *aux);
+int
+max(int a, int b);
 void thread_init (void);
 void thread_start (void);
 

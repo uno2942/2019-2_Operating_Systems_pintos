@@ -47,9 +47,7 @@ sema_init (struct semaphore *sema, unsigned value)
   ASSERT (sema != NULL);
 
   sema->value = value;
-  sema->sema_holder = NULL;
   list_init (&sema->waiters);
-  list_init (&sema->donation_list); 
 }
 
 /* Down or "P" operation on a semaphore.  Waits for SEMA's value
@@ -59,17 +57,7 @@ sema_init (struct semaphore *sema, unsigned value)
    interrupt handler.  This function may be called with
    interrupts disabled, but if it sleeps then the next scheduled
    thread will probably turn interrupts back on. */
-   bool
-thread_priority_less_2 (const struct list_elem *a,
-                             const struct list_elem *b,
-                             void *aux)
-                             {
-  struct thread *ta = list_entry (a, struct thread, elem);
-  struct thread *tb = list_entry (b, struct thread, elem);
-  if(ta->priority>tb->priority)
-    return true;
-    return false;
-}
+
 void
 sema_down (struct semaphore *sema) 
 {
@@ -81,21 +69,7 @@ sema_down (struct semaphore *sema)
   old_level = intr_disable ();
   while (sema->value == 0) 
   {    
-    if(sema->sema_holder != NULL && thread_current()->priority > sema->sema_holder->priority)
-    {
-      list_push_front(&sema->donation_list, &thread_current()->donation_elem);
-      int temp = sema->sema_holder->priority;
-      sema->sema_holder->priority = thread_current()->priority;
-      thread_current()->priority = temp;
-      
-      if(sema->sema_holder->status == THREAD_BLOCKED)
-        thread_unblock(sema->sema_holder);
-    }
-    if(thread_current()->blocking_thread == NULL)
-    { 
-      list_push_back (&sema->waiters, &thread_current ()->elem);
-      thread_current()->blocking_thread = sema->sema_holder;
-    }
+    list_push_back (&sema->waiters, &thread_current ()->elem);
     thread_block ();
   }
   sema->value--;
@@ -142,7 +116,7 @@ sema_up (struct semaphore *sema)
   old_level = intr_disable ();
   if (!list_empty (&sema->waiters)) 
     {
-      list_sort(&sema->waiters, thread_priority_less_2, NULL);
+      list_sort(&sema->waiters, thread_priority_less, NULL);
       t=list_entry (list_pop_front (&sema->waiters),
                                 struct thread, elem);
       thread_unblock (t);
@@ -238,7 +212,6 @@ lock_acquire (struct lock *lock)
   lock->holder = thread_current ();
 //  printf("now lock onwer: %d\n", lock->holder);
 //  printf("is donation list empty: %d", list_empty(&lock->holder->donation_list));
-  (&lock->semaphore)->sema_holder = lock->holder;
   intr_set_level (old_level);
 }
 
@@ -279,15 +252,8 @@ lock_release (struct lock *lock)
   ASSERT (lock_held_by_current_thread (lock));
   
   old_level = intr_disable ();
-  while(!list_empty(&(&lock->semaphore)->donation_list))
-    {
-      t = list_entry (list_pop_front(&(&lock->semaphore)->donation_list), struct thread, donation_elem);
-      temp = lock->holder->priority;
-      lock->holder->priority = t->priority;
-      t->priority = temp;
-    }
+  
   lock->holder = NULL;
-  (&lock->semaphore)->sema_holder = NULL;
   sema_up (&lock->semaphore);
 
   intr_set_level (old_level);
