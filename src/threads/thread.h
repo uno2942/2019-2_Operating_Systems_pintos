@@ -91,7 +91,8 @@ struct thread
     int priority;                       /* Priority. */
     int priority_origin;                
     int64_t endtime;
-    struct thread* blocking_thread;
+    struct lock* blocking_lock;
+    struct list lock_to_solve_list;
     struct list_elem allelem;           /* List element for all threads list. */
 
     /* Shared between thread.c and synch.c. */

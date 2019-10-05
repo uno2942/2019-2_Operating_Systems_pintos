@@ -199,7 +199,6 @@ thread_create (const char *name, int priority,
   /* Initialize thread. */
   init_thread (t, name, priority);
 //  printf("%s -> %s\n", t->name, thread_current()->name);
-  t->priority_origin = priority;
   tid = t->tid = allocate_tid ();
 
   /* Stack frame for kernel_thread(). */
@@ -497,14 +496,16 @@ init_thread (struct thread *t, const char *name, int priority)
   strlcpy (t->name, name, sizeof t->name);
   t->stack = (uint8_t *) t + PGSIZE;
   t->priority = priority;
+  t->priority_origin = priority;
   t->magic = THREAD_MAGIC;
 
   old_level = intr_disable ();
   list_push_back (&all_list, &t->allelem);
 
   //Related to lock
-  t->blocking_thread = NULL;
-  
+  t->blocking_lock = NULL;
+  list_init(&t->lock_to_solve_list);
+
   intr_set_level (old_level);
 }
 
