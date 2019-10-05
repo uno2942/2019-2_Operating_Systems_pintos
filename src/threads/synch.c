@@ -219,9 +219,22 @@ while(lock->holder != NULL && thread_current()->priority > lock->holder->priorit
     }
 
     int temp = t->priority;
-    t->priority = thread_current()->priority;
+    t->priority = thread_current()->priority_origin;
     thread_current()->priority = temp;
-    list_push_front(&l->donation_thread_list, &thread_current()->donation_elem);
+
+    bool flag = true;
+    struct list_elem *e;
+    for (e = list_begin (&l->donation_thread_list); e != list_end (&l->donation_thread_list);
+          e = list_next (e))
+      {
+        struct thread *myl = list_entry (e, struct thread, donation_elem);
+        if(myl->tid == thread_current()->tid)
+        {
+          flag=false;
+        }
+      }
+    if(flag)
+      list_push_front(&l->donation_thread_list, &thread_current()->donation_elem);
     thread_yield();
   }
 
