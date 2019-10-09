@@ -206,7 +206,7 @@ lock_acquire (struct lock *lock)
   ASSERT (!lock_held_by_current_thread (lock));
 
   old_level = intr_disable ();
-
+if(!thread_mlfqs){
   thread_current()->blocking_lock = lock;
 
 while(lock->holder != NULL && thread_current()->priority > lock->holder->priority)
@@ -247,6 +247,13 @@ while(lock->holder != NULL && thread_current()->priority > lock->holder->priorit
   list_push_back(&thread_current()->lock_list, &lock->elem);
 //  printf("now lock onwer: %d\n", lock->holder);
 //  printf("is donation list empty: %d", list_empty(&lock->holder->donation_list));
+}
+  else
+  {
+  sema_down (&lock->semaphore);
+  lock->holder = thread_current ();
+  }
+
   intr_set_level (old_level);
 }
 
@@ -287,10 +294,11 @@ lock_release (struct lock *lock)
   ASSERT (lock != NULL);
   ASSERT (lock_held_by_current_thread (lock));
   
-
+  old_level = intr_disable ();
+  
+if(!thread_mlfqs){
   lock_list = &thread_current()->lock_list;
   list_remove(&lock->elem);
-  old_level = intr_disable ();
 
   while(!list_empty(&lock->donation_thread_list))
   {
@@ -323,6 +331,7 @@ lock_release (struct lock *lock)
     }
   }
   thread_current()->priority = m;
+}
   lock->holder = NULL;
   sema_up (&lock->semaphore);
 
