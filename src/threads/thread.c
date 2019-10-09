@@ -113,6 +113,7 @@ max(int a, int b)
 void
 thread_init (void) 
 {
+  int idx;
   ASSERT (intr_get_level () == INTR_OFF);
   
   lock_init (&tid_lock);
