@@ -585,6 +585,18 @@ void update_priority_mlfqs(struct thread *t, void *aux UNUSED)
           and insert to new prioirty */
         list_remove(&(t->pqelem));
         list_push_back (&pri_ready_queues[new_pri],&t->pqelem);
+
+        if(new_pri > thread_current ()->priority)
+        {
+          if(intr_context ())
+          {
+            intr_yield_on_return ();
+          }
+          else
+          {
+            thread_yield ();
+          }
+        }
       }
     } 
   }
