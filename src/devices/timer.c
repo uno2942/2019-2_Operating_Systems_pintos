@@ -32,6 +32,9 @@ static void busy_wait (int64_t loops);
 static void real_time_sleep (int64_t num, int32_t denom);
 static void real_time_delay (int64_t num, int32_t denom);
 
+//get ready_threds from thread.c
+extern int ready_threads;
+
 /* Sets up the timer to interrupt TIMER_FREQ times per second,
    and registers the corresponding interrupt. */
 void
@@ -192,27 +195,33 @@ timer_interrupt (struct intr_frame *args UNUSED)
 
   ASSERT (intr_get_level () == INTR_OFF);
 
- // printf("loop start\n");
   for (e = list_begin (&sleep_list); e != list_end (&sleep_list);
        e = list_next (e))
     {
- //     printf("1");
       struct thread *t = list_entry (e, struct thread, elem);
- //     printf("2");
       if(t->endtime <= ticks)
         {
-          
-//  printf("need to wake up %d, %d, %d\n", t->tid, t->endtime, ticks);
- //         printf("3");
- //         printf("4");
           e=list_remove(e);
           e=e->prev;
           thread_unblock(t);
-//          printf("5");
         }
     }
-//  printf("loop end\n");
 
+  if(thread_mlfqs)
+  {     
+    /* implement priority update for mlfqs */
+    if ((ticks % 4) == 0){
+      thread_foreach(update_priority_mlfqs,0);
+    }
+    
+    /* recalculation of recent cpu & load_avg */
+    if((ticks % TIMER_FREQ) == 0)
+    {
+      update_load_avg();
+      thread_foreach(update_recent_cpu, 0);
+    }
+
+  }
   thread_tick ();
 }
 

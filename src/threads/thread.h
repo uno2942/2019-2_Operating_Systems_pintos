@@ -4,6 +4,7 @@
 #include <debug.h>
 #include <list.h>
 #include <stdint.h>
+#include "threads/float_custom.h"
 
 /* States in a thread's life cycle. */
 enum thread_status
@@ -23,6 +24,11 @@ typedef int tid_t;
 #define PRI_MIN 0                       /* Lowest priority. */
 #define PRI_DEFAULT 31                  /* Default priority. */
 #define PRI_MAX 63                      /* Highest priority. */
+
+/* Thread nice. */
+#define NICE_MIN -20
+#define NICE_DEFAULT 0
+#define NICE_MAX 20
 
 /* A kernel thread or user process.
 
@@ -91,6 +97,10 @@ struct thread
     int priority;                       /* Priority. */
     int priority_origin;                
     int64_t endtime;
+
+    int nice;                           /* Nice. */
+    my_float recent_cpu;                /* Recent CPU value for advanced scheduler */
+
     struct lock* blocking_lock;
     struct list lock_list;
     struct list_elem allelem;           /* List element for all threads list. */
@@ -98,6 +108,8 @@ struct thread
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /* List element. */
     struct list_elem donation_elem;
+    struct list_elem pqelem;            /* List element for priority queue */
+
 
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
@@ -116,8 +128,7 @@ bool
 thread_priority_less (const struct list_elem *a,
                              const struct list_elem *b,
                              void *aux);
-int
-max(int a, int b);
+int max(int a, int b);
 void thread_init (void);
 void thread_start (void);
 
@@ -148,5 +159,9 @@ int thread_get_nice (void);
 void thread_set_nice (int);
 int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
+
+void update_priority_mlfqs(struct thread *t, void *aux UNUSED);
+void update_load_avg (void);
+void update_recent_cpu(struct thread *t, void *aux UNUSED);
 
 #endif /* threads/thread.h */
