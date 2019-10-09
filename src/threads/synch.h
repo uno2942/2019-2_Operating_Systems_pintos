@@ -37,7 +37,9 @@ struct condition
   {
     struct list waiters;        /* List of waiting threads. */
   };
-
+bool thread_priority_less_3 (const struct list_elem *a,
+                             const struct list_elem *b,
+                             void *aux);
 void cond_init (struct condition *);
 void cond_wait (struct condition *, struct lock *);
 void cond_signal (struct condition *, struct lock *);

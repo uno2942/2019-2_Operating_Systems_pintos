@@ -39,7 +39,6 @@ void
 timer_init (void) 
 {
   list_init (&sleep_list);
-//  printf("intiated\n");
   pit_configure_channel (0, 2, TIMER_FREQ);
   intr_register_ext (0x20, timer_interrupt, "8254 Timer");
 }
@@ -96,21 +95,15 @@ timer_sleep (int64_t tick)
 {
   int64_t start = timer_ticks ();
   enum intr_level old_level;
+  
+  ASSERT (intr_get_level () == INTR_ON);
   old_level = intr_disable ();
   thread_current ()->endtime = start + tick;
- // printf("need to sleep, tid: %d, %d\n", thread_current ()->tid, start + ticks);
   list_push_back (&sleep_list, &thread_current ()->elem);
 
   thread_block();
   
-//  printf("escaped %d\n", thread_current ()->tid);
   intr_set_level (old_level);
-
-/*
-  ASSERT (intr_get_level () == INTR_ON);
-  while (timer_elapsed (start) < ticks) 
-    thread_yield ();
-    */
 }
 
 /* Sleeps for approximately MS milliseconds.  Interrupts must be

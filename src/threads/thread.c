@@ -226,7 +226,6 @@ thread_create (const char *name, int priority,
 
   /* Initialize thread. */
   init_thread (t, name, priority);
-//  printf("%s -> %s\n", t->name, thread_current()->name);
   tid = t->tid = allocate_tid ();
 
   /* Stack frame for kernel_thread(). */
@@ -249,7 +248,6 @@ thread_create (const char *name, int priority,
 
   if (thread_current ()->priority < t->priority)
     {
-//      printf("%s -> %s\n", t->name, thread_current()->name);
       thread_yield();
     }
   return tid;

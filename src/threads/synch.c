@@ -62,7 +62,6 @@ void
 sema_down (struct semaphore *sema) 
 {
   enum intr_level old_level;
-  int i=0;
   ASSERT (sema != NULL);
   ASSERT (!intr_context ());
 
@@ -239,14 +238,10 @@ while(lock->holder != NULL && thread_current()->priority > lock->holder->priorit
   }
 
 
-//  printf("%s acquire lock\n", thread_current()->name);
-//  printf("before lock onwer: %d\n", lock->holder);
   sema_down (&lock->semaphore);
   lock->holder = thread_current ();
   thread_current()->blocking_lock = NULL;
   list_push_back(&thread_current()->lock_list, &lock->elem);
-//  printf("now lock onwer: %d\n", lock->holder);
-//  printf("is donation list empty: %d", list_empty(&lock->holder->donation_list));
 }
   else
   {
@@ -268,7 +263,6 @@ lock_try_acquire (struct lock *lock)
 {
   bool success;
 
-//  printf("%s try acquire lock\n", thread_current()->name);
   ASSERT (lock != NULL);
   ASSERT (!lock_held_by_current_thread (lock));
 
@@ -288,7 +282,6 @@ lock_release (struct lock *lock)
 {
   struct list_elem *e;
   enum intr_level old_level;
-  int temp = 0;
   struct thread *t;
   struct list *lock_list;
   ASSERT (lock != NULL);
