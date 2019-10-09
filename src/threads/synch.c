@@ -382,7 +382,7 @@ cond_init (struct condition *cond)
    we need to sleep. */
 
 bool
-thread_priority_less_3 (const struct list_elem *a,
+thread_priority_less_in_semaphore (const struct list_elem *a,
                              const struct list_elem *b,
                              void *aux)
                              {
@@ -427,7 +427,7 @@ cond_signal (struct condition *cond, struct lock *lock UNUSED)
 
   if (!list_empty (&cond->waiters)) 
     {
-      list_sort(&cond->waiters, thread_priority_less_3, NULL);
+      list_sort(&cond->waiters, thread_priority_less_in_semaphore, NULL);
       sema_up (&list_entry (list_pop_front (&cond->waiters),
                           struct semaphore_elem, elem)->semaphore);
     }
