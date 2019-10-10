@@ -80,6 +80,8 @@ static void schedule (void);
 void thread_schedule_tail (struct thread *prev);
 static tid_t allocate_tid (void);
 
+/* Less function for sort */
+
 bool
 thread_priority_less (const struct list_elem *a,
                              const struct list_elem *b,
@@ -246,6 +248,7 @@ thread_create (const char *name, int priority,
    
   thread_unblock (t);
 
+  /* If created thread should preempt thread_current(), then preempty right now*/
   if (thread_current ()->priority < t->priority)
     {
       thread_yield();
@@ -411,7 +414,7 @@ thread_foreach (thread_action_func *func, void *aux)
     }
 }
 
-/* Sets the current thread's priority to NEW_PRIORITY. */
+/* Sets the current thread's priority and original_priority to NEW_PRIORITY. */
 
 void
 thread_set_priority (int new_priority) 
@@ -696,7 +699,7 @@ next_thread_to_run (void)
       {
         continue;
       }
-      /* some queue is not empty */
+      /* some queue is not empty. */
       return list_entry (list_pop_front (&pri_ready_queues[idx]), struct thread, pqelem);
     }
     /* all queue is empty */

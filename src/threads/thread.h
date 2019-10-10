@@ -94,20 +94,20 @@ struct thread
     enum thread_status status;          /* Thread state. */
     char name[16];                      /* Name (for debugging purposes). */
     uint8_t *stack;                     /* Saved stack pointer. */
-    int priority;                       /* Priority. */
-    int priority_origin;                
-    int64_t endtime;
+    int priority;                       /* Priority.(can be modifed with priority donation) */
+    int priority_origin;                /* Original Priority (can only be modified by set_priority */
+    int64_t endtime;                    /* The time thread should be waken up */
 
     int nice;                           /* Nice. */
     my_float recent_cpu;                /* Recent CPU value for advanced scheduler */
 
-    struct lock* blocking_lock;
-    struct list lock_list;
+    struct lock* blocking_lock;         /* A lock blocking the thread */
+    struct list lock_list;              /* Lock list that the thread have */
     struct list_elem allelem;           /* List element for all threads list. */
 
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /* List element. */
-    struct list_elem donation_elem;
+    struct list_elem donation_elem;     /* List element for donation_thread_list in lock struct */
     struct list_elem pqelem;            /* List element for priority queue */
 
 

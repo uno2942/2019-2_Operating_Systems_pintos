@@ -68,6 +68,7 @@ sema_down (struct semaphore *sema)
   old_level = intr_disable ();
   while (sema->value == 0) 
   {    
+    // It would be sorted by merge sort according to priority */
     list_push_back (&sema->waiters, &thread_current ()->elem);
     thread_block ();
   }
@@ -205,11 +206,14 @@ lock_acquire (struct lock *lock)
   ASSERT (!lock_held_by_current_thread (lock));
 
   old_level = intr_disable ();
+  //It only works in non-mlfqs
 if(!thread_mlfqs){
+  //while leaving the loop, it is blocked by the lock.
   thread_current()->blocking_lock = lock;
 
 while(lock->holder != NULL && thread_current()->priority > lock->holder->priority)
   {
+    //find the target lock and lock holder
       struct lock* l=lock;
     struct thread* t=lock->holder;
     while(t->blocking_lock!= NULL && t->blocking_lock->holder!=NULL){
@@ -217,12 +221,16 @@ while(lock->holder != NULL && thread_current()->priority > lock->holder->priorit
       t = t->blocking_lock->holder;
     }
 
+    //exchange priority
     int temp = t->priority;
     t->priority = thread_current()->priority_origin;
     thread_current()->priority = temp;
 
     bool flag = true;
     struct list_elem *e;
+    
+    //If the thread already donated to the lock holder, then do not insert. This
+    //only happens when test case lower the priority by force.
     for (e = list_begin (&l->donation_thread_list); e != list_end (&l->donation_thread_list);
           e = list_next (e))
       {
@@ -240,7 +248,9 @@ while(lock->holder != NULL && thread_current()->priority > lock->holder->priorit
 
   sema_down (&lock->semaphore);
   lock->holder = thread_current ();
+  //now it is not blocked by the lock.
   thread_current()->blocking_lock = NULL;
+  //the thread now has the lock.
   list_push_back(&thread_current()->lock_list, &lock->elem);
 }
   else
@@ -290,9 +300,11 @@ lock_release (struct lock *lock)
   old_level = intr_disable ();
   
 if(!thread_mlfqs){
+  //This lock is not owned by the current thread.
   lock_list = &thread_current()->lock_list;
   list_remove(&lock->elem);
 
+  //Recover the original priority for each thread in donation_thread_list.
   while(!list_empty(&lock->donation_thread_list))
   {
     t = list_entry (list_pop_front(&lock->donation_thread_list), struct thread, donation_elem);
@@ -312,6 +324,7 @@ if(!thread_mlfqs){
 
     }
 
+  //Recover the original priority for lock holder.
   int m = thread_current()->priority_origin;
   for (e = list_begin (lock_list); e != list_end (lock_list);
        e = list_next (e))
@@ -427,6 +440,7 @@ cond_signal (struct condition *cond, struct lock *lock UNUSED)
 
   if (!list_empty (&cond->waiters)) 
     {
+      // Round Robin
       list_sort(&cond->waiters, thread_priority_less_in_semaphore, NULL);
       sema_up (&list_entry (list_pop_front (&cond->waiters),
                           struct semaphore_elem, elem)->semaphore);
