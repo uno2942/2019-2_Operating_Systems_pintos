@@ -15,6 +15,7 @@
 #include "threads/init.h"
 #include "threads/interrupt.h"
 #include "threads/palloc.h"
+#include "threads/malloc.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h"
 
@@ -30,7 +31,6 @@ process_execute (const char *file_name)
 {
   char *fn_copy;
   tid_t tid;
-
   /* Make a copy of FILE_NAME.
      Otherwise there's a race between the caller and load(). */
   fn_copy = palloc_get_page (0);
@@ -60,9 +60,10 @@ start_process (void *file_name_)
   if_.cs = SEL_UCSEG;
   if_.eflags = FLAG_IF | FLAG_MBS;
   success = load (file_name, &if_.eip, &if_.esp);
-
   /* If load failed, quit. */
   palloc_free_page (file_name);
+//  printf("stack: %p\n", if_.esp);
+//  printf("eip: %p\n", if_.eip);
   if (!success) 
     thread_exit ();
 
@@ -88,6 +89,7 @@ start_process (void *file_name_)
 int
 process_wait (tid_t child_tid UNUSED) 
 {
+  while(1);
   return -1;
 }
 
@@ -205,6 +207,55 @@ static bool load_segment (struct file *file, off_t ofs, uint8_t *upage,
    Stores the executable's entry point into *EIP
    and its initial stack pointer into *ESP.
    Returns true if successful, false otherwise. */
+
+   void foo (void** esp, char* arguments)
+{
+  char* token = NULL;
+  char* save_ptr = NULL;
+  char* args_dump;
+  int i=0;
+  int total_len = 0;
+  char* esp_2;
+  void* esp_origin;
+
+  args_dump = malloc(strlen(arguments) + 1);
+
+  strlcpy (args_dump, arguments, PGSIZE);
+
+  for (token = strtok_r (args_dump, " ", &save_ptr); token != NULL;
+       token = strtok_r (NULL, " ", &save_ptr))
+       {
+         total_len += (strlen (token) + 1);
+         i++;
+       }
+
+  free(args_dump);
+  save_ptr = NULL;
+
+  *( (char**) esp) -= (4 + 4 + 4 + 4 * (i + 1) + 4 + total_len);
+  esp_origin = *esp;
+  **((int**)esp) = 0; *((int**)esp) += 1;
+  **((int**)esp) = i; *((int**)esp) += 1;
+  **((int**)esp) = (int)(*((int**)esp) + 1); *((int**)esp) +=1;
+  esp_2 = (void*)(*((int**)esp) + i + 2);
+
+  for (token = strtok_r (NULL, " ", &arguments); token != NULL;
+    token = strtok_r (NULL, " ", &arguments))
+    {
+      strlcpy(esp_2, token, strlen(token) + 1);
+      **((int**)esp) = (int)esp_2;
+      esp_2 += (strlen(token) + 1);
+      *((int**)esp) += 1;
+    }
+    **((int**)esp) = 0; *((int**)esp) += 1;
+    **((int**)esp) = 0;
+    *((int**)esp) = esp_origin;
+
+//    hex_dump(0, *esp, 64, 1);
+//    printf("esp: %p\n", *esp);
+}
+
+
 bool
 load (const char *file_name, void (**eip) (void), void **esp) 
 {
@@ -215,6 +266,14 @@ load (const char *file_name, void (**eip) (void), void **esp)
   bool success = false;
   int i;
 
+  char *real_file_name = NULL;
+  char *file_name_dump = NULL;
+  char *arguments = NULL;
+
+  file_name_dump = malloc(strlen(file_name) + 1);
+  strlcpy(file_name_dump, file_name, PGSIZE);
+  real_file_name = strtok_r (file_name_dump, " ", &arguments);
+
   /* Allocate and activate page directory. */
   t->pagedir = pagedir_create ();
   if (t->pagedir == NULL) 
@@ -222,10 +281,18 @@ load (const char *file_name, void (**eip) (void), void **esp)
   process_activate ();
 
   /* Open executable file. */
-  file = filesys_open (file_name);
+
+   if(real_file_name == NULL)
+      {
+        printf ("open failed\n");
+        goto done;
+      }
+
+
+  file = filesys_open (real_file_name);
   if (file == NULL) 
     {
-      printf ("load: %s: open failed\n", file_name);
+      printf ("load: %s: open failed\n", real_file_name);
       goto done; 
     }
 
@@ -238,7 +305,7 @@ load (const char *file_name, void (**eip) (void), void **esp)
       || ehdr.e_phentsize != sizeof (struct Elf32_Phdr)
       || ehdr.e_phnum > 1024) 
     {
-      printf ("load: %s: error loading executable\n", file_name);
+      printf ("load: %s: error loading executable\n", real_file_name);
       goto done; 
     }
 
@@ -305,16 +372,35 @@ load (const char *file_name, void (**eip) (void), void **esp)
   if (!setup_stack (esp))
     goto done;
 
+  foo (esp, arguments);
   /* Start address. */
   *eip = (void (*) (void)) ehdr.e_entry;
 
   success = true;
 
  done:
+ if(file_name_dump != NULL)
+   free(file_name_dump);
+
+// setup_stack_with_arguments(esp, file);
   /* We arrive here whether the load is successful or not. */
   file_close (file);
   return success;
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 /* load() helpers. */
 
