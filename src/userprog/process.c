@@ -30,6 +30,10 @@ static bool load (const char *cmdline, void (**eip) (void), void **esp);
 tid_t
 process_execute (const char *file_name) 
 {
+  char *real_file_name = NULL;
+  char *file_name_dump = NULL;
+  char *arguments = NULL;
+  
   char *fn_copy;
   tid_t tid;
   /* Make a copy of FILE_NAME.
@@ -39,10 +43,16 @@ process_execute (const char *file_name)
     return TID_ERROR;
   strlcpy (fn_copy, file_name, PGSIZE);
 
+  file_name_dump = malloc(strlen(file_name) + 1);
+  strlcpy(file_name_dump, file_name, PGSIZE);
+  real_file_name = strtok_r (file_name_dump, " ", &arguments);
+
   /* Create a new thread to execute FILE_NAME. */
-  tid = thread_create (file_name, PRI_DEFAULT, start_process, fn_copy);
+  tid = thread_create (real_file_name, PRI_DEFAULT, start_process, fn_copy);
   if (tid == TID_ERROR)
     palloc_free_page (fn_copy); 
+  
+  free(file_name_dump);
   return tid;
 }
 
@@ -233,7 +243,7 @@ static bool load_segment (struct file *file, off_t ofs, uint8_t *upage,
    and its initial stack pointer into *ESP.
    Returns true if successful, false otherwise. */
 
-   void foo (void** esp, char* arguments)
+void put_arguments_on_stack (void** esp, char* arguments)
 {
   char* token = NULL;
   char* save_ptr = NULL;
@@ -298,7 +308,7 @@ load (const char *file_name, void (**eip) (void), void **esp)
   file_name_dump = malloc(strlen(file_name) + 1);
   strlcpy(file_name_dump, file_name, PGSIZE);
   real_file_name = strtok_r (file_name_dump, " ", &arguments);
-
+  
   /* Allocate and activate page directory. */
   t->pagedir = pagedir_create ();
   if (t->pagedir == NULL) 
@@ -397,7 +407,12 @@ load (const char *file_name, void (**eip) (void), void **esp)
   if (!setup_stack (esp))
     goto done;
 
-  foo (esp, arguments);
+  free(file_name_dump); // I can modify not to reallocate file_name_dump.
+
+  file_name_dump = malloc(strlen(file_name) + 1);
+  strlcpy(file_name_dump, file_name, PGSIZE);
+
+  put_arguments_on_stack (esp, file_name_dump);
   /* Start address. */
   *eip = (void (*) (void)) ehdr.e_entry;
 

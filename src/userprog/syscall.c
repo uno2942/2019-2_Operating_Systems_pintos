@@ -120,6 +120,7 @@ void
 open_handle (struct intr_frame *f, const char *file)
 {
   struct file_descriptor* new_fd = (struct file_descriptor*) malloc(sizeof(struct file_descriptor));
+  //I need to free it.
   new_fd->file = filesys_open (file);
   new_fd->fd = fd_count;
   fd_count++;
@@ -274,5 +275,5 @@ syscall_handler (struct intr_frame *f)
       }
     break;
   }
-  printf ("system call!\n");
+//  printf ("system call!\n");
 }
