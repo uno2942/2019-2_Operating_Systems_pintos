@@ -18,6 +18,7 @@
 #include "threads/malloc.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h"
+#include "threads/synch.h"
 
 static thread_func start_process NO_RETURN;
 static bool load (const char *cmdline, void (**eip) (void), void **esp);
@@ -91,22 +92,22 @@ process_wait (tid_t child_tid)
 {
   struct list_elem *e;
   struct ev *ev_instance = NULL;
+  struct semaphore sema;
   int ret_val = 0;
-  int i=0;
+/*  int i=0;
   while(i<10000000)
     i++;//tentative
-
+*/
+  sema_init(&sema, 0);
   e = get_ev_elem(child_tid);
   if(e==NULL)
     return -1;
   ev_instance = list_entry (e, struct ev, elem);
   if(!(ev_instance->parent == thread_current()))
     return -1;
-//need lock
-  while(!(ev_instance->is_exit))
-    printf("now: %d, p name: %s\n", ev_instance->is_exit, ev_instance->parent->name);
-  printf("now: %d, p name: %s\n", ev_instance->is_exit, ev_instance->parent->name);
-
+  
+  ev_instance->sema = &sema;
+  sema_down(&sema);
   if(ev_instance->is_exit)
   {
     e=list_remove(e);

@@ -181,6 +181,7 @@ init_ev(struct thread* t)
   ev_instance->is_exit = false;
   ev_instance->parent = thread_current();
   ev_instance->is_deletable_by_child = false;
+  ev_instance->sema = NULL;
   list_push_back(&exit_value_list, &ev_instance->elem);
   t->ev = ev_instance;
 }
@@ -342,6 +343,8 @@ thread_exit (void)
       list_remove (&thread_current()->ev->elem);
       free (thread_current()->ev);
     }
+  if(thread_current()->ev->sema!=NULL)
+    sema_up(thread_current()->ev->sema);
 
   process_exit ();
 #endif

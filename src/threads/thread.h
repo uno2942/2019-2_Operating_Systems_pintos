@@ -116,6 +116,7 @@ struct ev{
   bool is_exit;
   bool is_deletable_by_child;
   struct list_elem elem;
+  struct semaphore* sema;
 };
 #endif
 
