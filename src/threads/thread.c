@@ -199,6 +199,9 @@ thread_create (const char *name, int priority,
   sf->eip = switch_entry;
   sf->ebp = 0;
 
+  t->parent_thread = thread_current();
+  t->child_thread = NULL;
+  thread_current()->child_thread = t;
   /* Add to run queue. */
   thread_unblock (t);
 
