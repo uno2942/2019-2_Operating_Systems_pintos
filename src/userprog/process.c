@@ -87,10 +87,34 @@ start_process (void *file_name_)
    This function will be implemented in problem 2-2.  For now, it
    does nothing. */
 int
-process_wait (tid_t child_tid UNUSED) 
+process_wait (tid_t child_tid) 
 {
-  while(1);
-  return -1;
+  struct list_elem *e;
+  struct ev *ev_instance = NULL;
+  int ret_val = 0;
+  int i=0;
+  while(i<10000000)
+    i++;//tentative
+
+  e = get_ev_elem(child_tid);
+  if(e==NULL)
+    return -1;
+  ev_instance = list_entry (e, struct ev, elem);
+  if(!(ev_instance->parent == thread_current()))
+    return -1;
+//need lock
+  while(!(ev_instance->is_exit))
+    printf("now: %d, p name: %s\n", ev_instance->is_exit, ev_instance->parent->name);
+  printf("now: %d, p name: %s\n", ev_instance->is_exit, ev_instance->parent->name);
+
+  if(ev_instance->is_exit)
+  {
+    e=list_remove(e);
+    ret_val=ev_instance->exit_value;
+    free(ev_instance);
+    return ret_val;
+  }
+  NOT_REACHED ();
 }
 
 /* Free the current process's resources. */

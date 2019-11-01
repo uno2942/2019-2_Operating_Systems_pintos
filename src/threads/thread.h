@@ -80,6 +80,9 @@ typedef int tid_t;
    only because they are mutually exclusive: only a thread in the
    ready state is on the run queue, whereas only a thread in the
    blocked state is on a semaphore wait list. */
+
+struct ev;
+
 struct thread
   {
     /* Owned by thread.c. */
@@ -98,14 +101,23 @@ struct thread
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
     uint32_t *pagedir;                  /* Page directory. */
-    struct thread* parent_thread;
-    struct thread* child_thread;
-    int child_exit_value;
+    struct ev* ev;
 #endif
 
     /* Owned by thread.c. */
     unsigned magic;                     /* Detects stack overflow. */
   };
+
+#ifdef USERPROG
+struct ev{
+  tid_t tid;
+  int exit_value;
+  struct thread* parent;
+  bool is_exit;
+  bool is_deletable_by_child;
+  struct list_elem elem;
+};
+#endif
 
 /* If false (default), use round-robin scheduler.
    If true, use multi-level feedback queue scheduler.
@@ -142,5 +154,5 @@ int thread_get_nice (void);
 void thread_set_nice (int);
 int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
-
+struct list_elem* get_ev_elem(tid_t tid);
 #endif /* threads/thread.h */

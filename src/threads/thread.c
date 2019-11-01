@@ -8,6 +8,7 @@
 #include "threads/interrupt.h"
 #include "threads/intr-stubs.h"
 #include "threads/palloc.h"
+#include "threads/malloc.h"
 #include "threads/switch.h"
 #include "threads/synch.h"
 #include "threads/vaddr.h"
@@ -59,6 +60,11 @@ static unsigned thread_ticks;   /* # of timer ticks since last yield. */
    Controlled by kernel command-line option "-o mlfqs". */
 bool thread_mlfqs;
 
+
+
+struct list exit_value_list;
+
+
 static void kernel_thread (thread_func *, void *aux);
 
 static void idle (void *aux UNUSED);
@@ -92,6 +98,8 @@ thread_init (void)
   lock_init (&tid_lock);
   list_init (&ready_list);
   list_init (&all_list);
+  list_init(&exit_value_list);
+
 
   /* Set up a thread structure for the running thread. */
   initial_thread = running_thread ();
@@ -162,6 +170,21 @@ thread_print_stats (void)
    The code provided sets the new thread's `priority' member to
    PRIORITY, but no actual priority scheduling is implemented.
    Priority scheduling is the goal of Problem 1-3. */
+
+void
+init_ev(struct thread* t)
+{
+  struct ev* ev_instance;
+  ev_instance = malloc(sizeof(struct ev));
+  ev_instance->tid = t->tid;
+  ev_instance->exit_value = -1;
+  ev_instance->is_exit = false;
+  ev_instance->parent = thread_current();
+  ev_instance->is_deletable_by_child = false;
+  list_push_back(&exit_value_list, &ev_instance->elem);
+  t->ev = ev_instance;
+}
+
 tid_t
 thread_create (const char *name, int priority,
                thread_func *function, void *aux) 
@@ -199,14 +222,13 @@ thread_create (const char *name, int priority,
   sf->eip = switch_entry;
   sf->ebp = 0;
 
-  t->parent_thread = thread_current();
-  t->child_thread = NULL;
-  thread_current()->child_thread = t;
+  init_ev(t);
   /* Add to run queue. */
   thread_unblock (t);
 
   return tid;
 }
+
 
 /* Puts the current thread to sleep.  It will not be scheduled
    again until awoken by thread_unblock().
@@ -281,12 +303,46 @@ thread_tid (void)
 
 /* Deschedules the current thread and destroys it.  Never
    returns to the caller. */
+
+void
+delete_ev_in_child(struct thread* t){
+  struct list_elem* e;
+  struct ev* ev_instance;
+
+  for (e = list_begin (&exit_value_list); e != list_end (&exit_value_list);
+      e = list_next (e))
+  {
+    ev_instance = list_entry (e, struct ev, elem);
+    if(ev_instance->parent == t)
+      {
+        if(ev_instance->is_exit)
+          {
+            e=list_remove(e);
+            e=e->prev;
+            free(ev_instance);
+          }
+        else
+          ev_instance->is_deletable_by_child = true;
+      }
+  }
+}
 void
 thread_exit (void) 
 {
   ASSERT (!intr_context ());
 
+  printf ("%s: exit(%d)\n", thread_current()->name, thread_current()->ev->exit_value);
+
 #ifdef USERPROG
+  
+  thread_current()->ev->is_exit = true;
+  delete_ev_in_child(thread_current());
+  if(thread_current()->ev->is_deletable_by_child)
+    {
+      list_remove (&thread_current()->ev->elem);
+      free (thread_current()->ev);
+    }
+
   process_exit ();
 #endif
 
@@ -629,3 +685,24 @@ allocate_tid (void)
 /* Offset of `stack' member within `struct thread'.
    Used by switch.S, which can't figure it out on its own. */
 uint32_t thread_stack_ofs = offsetof (struct thread, stack);
+
+struct list_elem*
+get_ev_elem(tid_t tid)
+{
+  struct list_elem *e;
+  struct ev *ev_instance = NULL;
+/*  int i=0;
+  while(i<10000000)
+    i++;//tentative
+*/
+  for (e = list_begin (&exit_value_list); e != list_end (&exit_value_list);
+        e = list_next (e))
+    {
+      ev_instance = list_entry (e, struct ev, elem);
+      if(ev_instance->tid == tid)
+        break;
+    }
+    if(ev_instance == NULL)
+      return NULL;
+    return e;
+}

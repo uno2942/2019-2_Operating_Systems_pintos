@@ -84,8 +84,9 @@ syscall_init (void)
 }
 
 void
-exit_handle (struct intr_frame *f, int status)
+exit_handle (struct intr_frame *f UNUSED, int status)
 {
+  thread_current()->ev->exit_value = status;
   thread_exit();
   //need synch.
 }
@@ -100,7 +101,7 @@ exec_handle (struct intr_frame *f, const char *file)
 void
 wait_handle (struct intr_frame *f, tid_t pid)
 {
-  return;
+  f->eax = process_wait(pid);
 }
 
 void
@@ -274,5 +275,4 @@ syscall_handler (struct intr_frame *f)
     break;
   }
   printf ("system call!\n");
-  thread_exit ();
 }
