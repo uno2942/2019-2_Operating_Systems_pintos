@@ -1,19 +1,19 @@
 #include "userprog/syscall.h"
-#include "userprog/process.h"
 #include <stdio.h>
 #include <syscall-nr.h>
+#include <console.h>
 #include "threads/interrupt.h"
 #include "threads/thread.h"
 #include "threads/malloc.h"
+#include "threads/interrupt.h"
+#include "threads/vaddr.h"
 #include "filesys/filesys.h"
 #include "filesys/file.h"
 #include "filesys/inode.h"
-#include "threads/interrupt.h"
 #include "devices/input.h"
-#include "userprog/pagedir.h"
-#include <console.h>
 #include "devices/shutdown.h"
-#include "threads/vaddr.h"
+#include "userprog/pagedir.h"
+#include "userprog/process.h"
 
 static int fd_count;
 
@@ -121,6 +121,7 @@ exec_handle (struct intr_frame *f, const char *file)
 {
   if(file==NULL)
     goto fail;
+  check_user_addr(file);
   f->eax = (uint32_t)process_execute(file);
   return;
   fail:
@@ -142,12 +143,14 @@ wait_handle (struct intr_frame *f, tid_t pid)
 void
 create_handle (struct intr_frame *f, const char *file, unsigned initial_size)
 {
+  check_user_addr(file);
   f->eax = filesys_create (file, initial_size);
 }
 
 void
 remove_handle (struct intr_frame *f, const char *file)
 {
+  check_user_addr(file);
    f->eax = filesys_remove (file);
 }
 
@@ -156,6 +159,7 @@ open_handle (struct intr_frame *f, const char *file)
 {
   if(file==NULL)
     goto fail;
+  check_user_addr(file);
   struct file* file_ = filesys_open (file);
   if(file_==NULL)
     goto fail;
@@ -191,6 +195,7 @@ read_handle (struct intr_frame *f, int fd, void *buffer, unsigned size)
   if(file!=NULL)
     {
       //is buffer valid
+      check_user_addr(buffer);
       f->eax = file_read (file, buffer, size);
       return;
     }
@@ -209,8 +214,9 @@ write_handle (struct intr_frame *f, int fd, const void *buffer, unsigned size)
   if(file!=NULL)
     {
       //is buffer valid
-    f->eax = file_write (file, buffer, size);
-    return;
+      check_user_addr(buffer);
+      f->eax = file_write (file, buffer, size);
+      return;
     }
   else if(fd==1)
   {
@@ -340,10 +346,10 @@ syscall_handler (struct intr_frame *f)
 //  printf ("system call!\n");
 }
 
+
 /* check given pointer is vaild user address`s
    if invalid, release all resource & terminate process */
-
-void check_user_addr(const *vaddr)
+void check_user_addr(const void *vaddr)
 {
   bool is_vaild_uaddr = true;
   /* check it is null pointer */
@@ -355,9 +361,9 @@ void check_user_addr(const *vaddr)
   {
     /* check it is unmmapped virtual pointer 
        function from pagedir.c */
-    if(lookup_page(active_pd (),vaddr,false) == NULL)
+    if(lookup_page (active_pd (),vaddr,false) == NULL)
     {
-      is_valid_uaddr = false;
+      is_vaild_uaddr = false;
     }
     else
     {
@@ -370,7 +376,8 @@ void check_user_addr(const *vaddr)
   /* handle process when invalid */
   if(!is_vaild_uaddr)
   {
-    /* need release all resource. lock & malloc */
+    /* need release all resource. lock & malloc 
+       close_files is in thread_handle*/
 
     /* terminate process */
     thread_exit ();
