@@ -152,7 +152,6 @@ process_wait (tid_t child_tid)
   
   while(!ev_instance->is_exit)
   {
-    printf("A\n");
     ev_instance->wait_sema = &sema;
     sema_down(&sema);
   }
