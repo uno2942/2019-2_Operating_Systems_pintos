@@ -14,6 +14,7 @@
 #include "threads/vaddr.h"
 #ifdef USERPROG
 #include "userprog/process.h"
+#include "userprog/syscall.h"
 #endif
 
 /* Random value for struct thread's `magic' member.
@@ -64,6 +65,13 @@ bool thread_mlfqs;
 
 struct list exit_value_list;
 
+
+void init_ev(struct thread* t);
+void delete_ev_in_child(struct thread* t);
+
+
+bool thread_priority_less(const struct list_elem *a, const struct list_elem *b, void *aux);
+int max(int a, int b);
 
 static void kernel_thread (thread_func *, void *aux);
 
@@ -155,21 +163,6 @@ thread_print_stats (void)
           idle_ticks, kernel_ticks, user_ticks);
 }
 
-/* Creates a new kernel thread named NAME with the given initial
-   PRIORITY, which executes FUNCTION passing AUX as the argument,
-   and adds it to the ready queue.  Returns the thread identifier
-   for the new thread, or TID_ERROR if creation fails.
-
-   If thread_start() has been called, then the new thread may be
-   scheduled before thread_create() returns.  It could even exit
-   before thread_create() returns.  Contrariwise, the original
-   thread may run for any amount of time before the new thread is
-   scheduled.  Use a semaphore or some other form of
-   synchronization if you need to ensure ordering.
-
-   The code provided sets the new thread's `priority' member to
-   PRIORITY, but no actual priority scheduling is implemented.
-   Priority scheduling is the goal of Problem 1-3. */
 
 void
 init_ev(struct thread* t)
@@ -187,6 +180,22 @@ init_ev(struct thread* t)
   list_push_back(&exit_value_list, &ev_instance->elem);
   t->ev = ev_instance;
 }
+
+/* Creates a new kernel thread named NAME with the given initial
+   PRIORITY, which executes FUNCTION passing AUX as the argument,
+   and adds it to the ready queue.  Returns the thread identifier
+   for the new thread, or TID_ERROR if creation fails.
+
+   If thread_start() has been called, then the new thread may be
+   scheduled before thread_create() returns.  It could even exit
+   before thread_create() returns.  Contrariwise, the original
+   thread may run for any amount of time before the new thread is
+   scheduled.  Use a semaphore or some other form of
+   synchronization if you need to ensure ordering.
+
+   The code provided sets the new thread's `priority' member to
+   PRIORITY, but no actual priority scheduling is implemented.
+   Priority scheduling is the goal of Problem 1-3. */
 
 tid_t
 thread_create (const char *name, int priority,
@@ -335,9 +344,18 @@ thread_exit (void)
   enum intr_level old_level;
   ASSERT (!intr_context ());
 
+  //print termination message.
   printf ("%s: exit(%d)\n", thread_current()->name, thread_current()->ev->exit_value);
 
 #ifdef USERPROG
+
+  //Need to unlock the locks related to this thread.
+
+  //First close files related with this thread.
+  //Arrange ev list and set ev->is_exit true.
+  //If the parent waiting for this thread, then sema_up(wait_sema)
+  close_files(thread_current()->tid);
+
   old_level = intr_disable ();
   delete_ev_in_child(thread_current());
   if(thread_current()->ev->is_deletable_by_child)
@@ -364,17 +382,6 @@ thread_exit (void)
   NOT_REACHED ();
 }
 
-bool
-thread_priority_less_push_back(const struct list_elem *a,
-                             const struct list_elem *b,
-                             void *aux)
-{
-  struct thread *ta = list_entry (a, struct thread, elem);
-  struct thread *tb = list_entry (b, struct thread, elem);
-  if(ta->priority>tb->priority)
-    return true;
-  return false;
-}
 /* Yields the CPU.  The current thread is not put to sleep and
    may be scheduled again immediately at the scheduler's whim. */
 void
@@ -389,7 +396,7 @@ thread_yield (void)
   if (cur != idle_thread) 
     {
       list_insert_ordered(&ready_list, &cur->elem, 
-                          thread_priority_less_push_back, NULL);
+                          thread_priority_less, NULL);
       // list_push_back (&ready_list, &cur->elem);
     }
   cur->status = THREAD_READY;
@@ -597,7 +604,7 @@ thread_priority_less (const struct list_elem *a,
 static struct thread *
 next_thread_to_run (void) 
 {
-  struct list_elem *e;
+//  struct list_elem *e;
   if (list_empty (&ready_list))
     return idle_thread;
   else

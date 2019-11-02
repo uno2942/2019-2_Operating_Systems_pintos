@@ -30,15 +30,18 @@ static bool load (const char *cmdline, void (**eip) (void), void **esp);
 tid_t
 process_execute (const char *file_name) 
 {
+  //for interrupt disable
   enum intr_level old_level;
 
+  //for argument parsing
   char *real_file_name = NULL;
   char *file_name_dump = NULL;
   char *arguments = NULL;
   
   char *fn_copy;
   tid_t tid;
-
+  
+  //for load synch
   struct semaphore sema;
   struct ev* ev;
 
@@ -51,6 +54,7 @@ process_execute (const char *file_name)
     return TID_ERROR;
   strlcpy (fn_copy, file_name, PGSIZE);
 
+  //Find first word block, which will be thread_name == file_name.
   file_name_dump = malloc(strlen(file_name) + 1);
   strlcpy(file_name_dump, file_name, PGSIZE);
   real_file_name = strtok_r (file_name_dump, " ", &arguments);
@@ -62,7 +66,12 @@ process_execute (const char *file_name)
     palloc_free_page (fn_copy); 
   else
   {
+    //if tid is valid, then we need to wait while the loader completes and
+    //success value.
     ev = list_entry (get_ev_elem(tid), struct ev, elem);
+    
+    //Since there can be race condition between load function, we need to
+    //implement it like atomic.
     old_level = intr_disable ();
     while(!ev->is_loaded)
     {
@@ -70,7 +79,10 @@ process_execute (const char *file_name)
       sema_down(&sema);
     }
     intr_set_level (old_level);
+
     ev->load_sema = NULL;
+
+    //if load is not success, tid is -1.
     if(!ev->load_success)
       tid = TID_ERROR;
   }
@@ -95,16 +107,18 @@ start_process (void *file_name_)
   
   success = load (file_name, &if_.eip, &if_.esp);
 
+  //set whether load is success and load is complete.
   thread_current()->ev->load_success = success;
   thread_current()->ev->is_loaded = true;
 
+  //if parent process wait for the thread, release it.
+  //We don't have to encapsulate this by intr_disable since it is protected by
+  //ev->is_loaded boolean data for race condition.
   if(thread_current()->ev->load_sema!=NULL)
       sema_up(thread_current()->ev->load_sema);
 
   /* If load failed, quit. */
   palloc_free_page (file_name);
-//  printf("stack: %p\n", if_.esp);
-//  printf("eip: %p\n", if_.eip);
   if (!success) 
     thread_exit ();
 
@@ -130,39 +144,46 @@ start_process (void *file_name_)
 int
 process_wait (tid_t child_tid) 
 {
+  //to disable interrupt
   enum intr_level old_level;
 
+  //target child's ev
   struct list_elem *e;
   struct ev *ev_instance = NULL;
+  
+  //to wait the target process to exit.
   struct semaphore sema;
+
+  //to save return value before deleting ev.
   int ret_val = 0;
-/*  int i=0;
-  while(i<10000000)
-    i++;//tentative
-*/
+
+
   sema_init(&sema, 0);
   e = get_ev_elem(child_tid);
   if(e==NULL)
     return -1;
+
   ev_instance = list_entry (e, struct ev, elem);
+  
   if(!(ev_instance->parent == thread_current()))
     return -1;
   
+
   old_level = intr_disable ();
-  
+  //wait until the target process exit.
   while(!ev_instance->is_exit)
   {
     ev_instance->wait_sema = &sema;
     sema_down(&sema);
   }
-  
   intr_set_level (old_level);
 
+  //Delete the ev from list and delete the ev.
+  //Return value is from the ev.
   e=list_remove(e);
   ret_val=ev_instance->exit_value;
   free(ev_instance);
   return ret_val;
-  NOT_REACHED ();
 }
 
 /* Free the current process's resources. */
@@ -270,16 +291,13 @@ struct Elf32_Phdr
 #define PF_R 4          /* Readable. */
 
 static bool setup_stack (void **esp);
+void put_arguments_on_stack (void** esp, char* arguments);
 static bool validate_segment (const struct Elf32_Phdr *, struct file *);
 static bool load_segment (struct file *file, off_t ofs, uint8_t *upage,
                           uint32_t read_bytes, uint32_t zero_bytes,
                           bool writable);
 
-/* Loads an ELF executable from FILE_NAME into the current thread.
-   Stores the executable's entry point into *EIP
-   and its initial stack pointer into *ESP.
-   Returns true if successful, false otherwise. */
-
+//puts arguments on stack by dividing by " "
 void put_arguments_on_stack (void** esp, char* arguments)
 {
   char* token = NULL;
@@ -327,6 +345,10 @@ void put_arguments_on_stack (void** esp, char* arguments)
 //    printf("esp: %p\n", *esp);
 }
 
+/* Loads an ELF executable from FILE_NAME into the current thread.
+   Stores the executable's entry point into *EIP
+   and its initial stack pointer into *ESP.
+   Returns true if successful, false otherwise. */
 
 bool
 load (const char *file_name, void (**eip) (void), void **esp) 

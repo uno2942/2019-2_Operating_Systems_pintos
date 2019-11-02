@@ -107,7 +107,6 @@ void
 exit_handle (struct intr_frame *f UNUSED, int status)
 {
   thread_current()->ev->exit_value = status;
-  close_files(thread_current()->tid);
   thread_exit();
 }
 
@@ -251,6 +250,8 @@ close_handle (struct intr_frame *f, int fd)
   struct list_elem* e;
   tid_t owner = thread_current()->tid;
   //binary search can be applied.
+
+  //find the corresponding file and close it. Set f->eax = 1 and return;
   for (e = list_begin (&fd_list); e != list_end (&fd_list);
        e = list_next (e))
     {
@@ -265,6 +266,8 @@ close_handle (struct intr_frame *f, int fd)
           return;
         }
     }
+  
+  //could not find the corresponding file.
   f->eax = 0;
 }
 
