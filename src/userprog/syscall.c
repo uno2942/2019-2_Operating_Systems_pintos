@@ -15,15 +15,18 @@
 
 static int fd_count;
 
+//the list having file_descriptor data.
 static struct list fd_list;
 
+//file_descriptor to handle abstraction of file for user.
+
 struct file_descriptor{
-    struct file* file;
-    int fd;
-    struct list_elem elem;
+    struct file* file;        //real file in system.
+    int fd;                   //fd value for user.
+    tid_t owner;              //the owner of the file.
+    struct list_elem elem;    //for list
 };
 
-bool fd_less(const struct list_elem *a, const struct list_elem *b, void *aux);
 struct file* find_file(int fd);
 
 void syscall_init (void);
@@ -43,16 +46,7 @@ void close_handle (struct intr_frame *f, int fd);
 
 static void syscall_handler (struct intr_frame *);
 
-
-bool
-fd_less(const struct list_elem *a, const struct list_elem *b, void *aux){
-  struct file_descriptor* fa = list_entry (a, struct file_descriptor, elem);
-  struct file_descriptor* fb = list_entry (b, struct file_descriptor, elem);
-  if(fa->fd > fb->fd)
-    return true;
-  return false;
-}
-
+//find file having fd value FD.
 struct file*
 find_file(int fd)
 {
@@ -74,6 +68,27 @@ find_file(int fd)
   return file;
 }
 
+//close files that the owner haves.
+void
+close_files(tid_t owner)
+{
+  struct file_descriptor *fd_ = NULL;
+  struct list_elem* e;
+  //binary search can be applied.
+  for (e = list_begin (&fd_list); e != list_end (&fd_list);
+       e = list_next (e))
+    {
+      fd_ = list_entry (e, struct file_descriptor, elem);
+      if(fd_->owner == owner)
+        {
+          e=list_remove(e);
+          e=e->prev;
+          file_close(fd_->file);
+          free(fd_);
+        }
+    }
+}
+
 
 void
 syscall_init (void) 
@@ -83,21 +98,40 @@ syscall_init (void)
   intr_register_int (0x30, 3, INTR_ON, syscall_handler, "syscall");
 }
 
+//Before exit, set the exit value of current thread by status and close
+//all the files the thread haves.
+//Finally, call exit.
+//The print of status value and synchronization task for wait() call
+//is done in thread_exit.
 void
 exit_handle (struct intr_frame *f UNUSED, int status)
 {
   thread_current()->ev->exit_value = status;
+  close_files(thread_current()->tid);
   thread_exit();
-  //need synch.
 }
 
+/*
+  First check the file data, and call process_excute.
+  The called process may exit before returning to this handler.
+*/
 void
 exec_handle (struct intr_frame *f, const char *file)
 {
+  if(file==NULL)
+    goto fail;
   f->eax = (uint32_t)process_execute(file);
+  return;
+  fail:
+    f->eax = -1;
+    return;
   //need synch
 }
-
+/*
+  If the target does not exit, wait until it exit.
+  If it exit, return the exit value.
+  Note that only one process can wait one process since only parent can wait.
+*/
 void
 wait_handle (struct intr_frame *f, tid_t pid)
 {
@@ -119,13 +153,24 @@ remove_handle (struct intr_frame *f, const char *file)
 void
 open_handle (struct intr_frame *f, const char *file)
 {
+  if(file==NULL)
+    goto fail;
+  struct file* file_ = filesys_open (file);
+  if(file_==NULL)
+    goto fail;
   struct file_descriptor* new_fd = (struct file_descriptor*) malloc(sizeof(struct file_descriptor));
   //I need to free it.
-  new_fd->file = filesys_open (file);
   new_fd->fd = fd_count;
+  new_fd->file = file_;
+  new_fd->owner = thread_current()->tid;
   fd_count++;
   list_push_back(&fd_list, &new_fd->elem);
   f->eax = new_fd->fd;
+  return;
+  
+  fail:
+    f->eax = -1;
+    return;
 }
 
 void
@@ -202,13 +247,23 @@ tell_handle (struct intr_frame *f, int fd)
 void
 close_handle (struct intr_frame *f, int fd)
 {
-  struct file* file = find_file(fd);
-  if(file!=NULL)
+  struct file_descriptor *fd_ = NULL;
+  struct list_elem* e;
+  tid_t owner = thread_current()->tid;
+  //binary search can be applied.
+  for (e = list_begin (&fd_list); e != list_end (&fd_list);
+       e = list_next (e))
     {
-      //is buffer valid
-      file_close (file);
-      f->eax = 1;
-      return;
+      fd_ = list_entry (e, struct file_descriptor, elem);
+      if(fd_->fd == fd && fd_->owner == owner)
+        {
+          e=list_remove(e);
+          e=e->prev;
+          file_close(fd_->file);
+          free(fd_);
+          f->eax = 1;
+          return;
+        }
     }
   f->eax = 0;
 }
@@ -216,6 +271,8 @@ close_handle (struct intr_frame *f, int fd)
 
 
 
+//According to the value *((int*)(f->esp)), categorize the interrupt and call
+//appropriate handler.
 static void
 syscall_handler (struct intr_frame *f) 
 {

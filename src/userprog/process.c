@@ -30,12 +30,20 @@ static bool load (const char *cmdline, void (**eip) (void), void **esp);
 tid_t
 process_execute (const char *file_name) 
 {
+  enum intr_level old_level;
+
   char *real_file_name = NULL;
   char *file_name_dump = NULL;
   char *arguments = NULL;
   
   char *fn_copy;
   tid_t tid;
+
+  struct semaphore sema;
+  struct ev* ev;
+
+  sema_init(&sema, 0);
+
   /* Make a copy of FILE_NAME.
      Otherwise there's a race between the caller and load(). */
   fn_copy = palloc_get_page (0);
@@ -49,9 +57,23 @@ process_execute (const char *file_name)
 
   /* Create a new thread to execute FILE_NAME. */
   tid = thread_create (real_file_name, PRI_DEFAULT, start_process, fn_copy);
+  
   if (tid == TID_ERROR)
     palloc_free_page (fn_copy); 
-  
+  else
+  {
+    ev = list_entry (get_ev_elem(tid), struct ev, elem);
+    old_level = intr_disable ();
+    while(!ev->is_loaded)
+    {
+      ev->load_sema = &sema;
+      sema_down(&sema);
+    }
+    intr_set_level (old_level);
+    ev->load_sema = NULL;
+    if(!ev->load_success)
+      tid = TID_ERROR;
+  }
   free(file_name_dump);
   return tid;
 }
@@ -70,7 +92,15 @@ start_process (void *file_name_)
   if_.gs = if_.fs = if_.es = if_.ds = if_.ss = SEL_UDSEG;
   if_.cs = SEL_UCSEG;
   if_.eflags = FLAG_IF | FLAG_MBS;
+  
   success = load (file_name, &if_.eip, &if_.esp);
+
+  thread_current()->ev->load_success = success;
+  thread_current()->ev->is_loaded = true;
+
+  if(thread_current()->ev->load_sema!=NULL)
+      sema_up(thread_current()->ev->load_sema);
+
   /* If load failed, quit. */
   palloc_free_page (file_name);
 //  printf("stack: %p\n", if_.esp);
@@ -100,6 +130,8 @@ start_process (void *file_name_)
 int
 process_wait (tid_t child_tid) 
 {
+  enum intr_level old_level;
+
   struct list_elem *e;
   struct ev *ev_instance = NULL;
   struct semaphore sema;
@@ -116,15 +148,21 @@ process_wait (tid_t child_tid)
   if(!(ev_instance->parent == thread_current()))
     return -1;
   
-  ev_instance->sema = &sema;
-  sema_down(&sema);
-  if(ev_instance->is_exit)
+  old_level = intr_disable ();
+  
+  while(!ev_instance->is_exit)
   {
-    e=list_remove(e);
-    ret_val=ev_instance->exit_value;
-    free(ev_instance);
-    return ret_val;
+    printf("A\n");
+    ev_instance->wait_sema = &sema;
+    sema_down(&sema);
   }
+  
+  intr_set_level (old_level);
+
+  e=list_remove(e);
+  ret_val=ev_instance->exit_value;
+  free(ev_instance);
+  return ret_val;
   NOT_REACHED ();
 }
 

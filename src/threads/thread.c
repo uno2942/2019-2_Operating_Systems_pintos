@@ -181,7 +181,9 @@ init_ev(struct thread* t)
   ev_instance->is_exit = false;
   ev_instance->parent = thread_current();
   ev_instance->is_deletable_by_child = false;
-  ev_instance->sema = NULL;
+  ev_instance->load_sema = NULL;
+  ev_instance->wait_sema = NULL;
+  ev_instance->is_loaded = false;
   list_push_back(&exit_value_list, &ev_instance->elem);
   t->ev = ev_instance;
 }
@@ -330,21 +332,24 @@ delete_ev_in_child(struct thread* t){
 void
 thread_exit (void) 
 {
+  enum intr_level old_level;
   ASSERT (!intr_context ());
 
   printf ("%s: exit(%d)\n", thread_current()->name, thread_current()->ev->exit_value);
 
 #ifdef USERPROG
-  
-  thread_current()->ev->is_exit = true;
+  old_level = intr_disable ();
   delete_ev_in_child(thread_current());
   if(thread_current()->ev->is_deletable_by_child)
     {
       list_remove (&thread_current()->ev->elem);
       free (thread_current()->ev);
     }
-  if(thread_current()->ev->sema!=NULL)
-    sema_up(thread_current()->ev->sema);
+  if(thread_current()->ev->wait_sema!=NULL)
+    sema_up(thread_current()->ev->wait_sema);
+  
+  thread_current()->ev->is_exit = true;
+  intr_set_level (old_level);
 
   process_exit ();
 #endif

@@ -114,9 +114,12 @@ struct ev{
   int exit_value;
   struct thread* parent;
   bool is_exit;
+  bool load_success;
+  bool is_loaded;
   bool is_deletable_by_child;
   struct list_elem elem;
-  struct semaphore* sema;
+  struct semaphore* load_sema;
+  struct semaphore* wait_sema;
 };
 #endif
 
