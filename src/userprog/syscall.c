@@ -291,6 +291,7 @@ syscall_handler (struct intr_frame *f)
   int arg0;
   int arg1;
   int arg2;
+  check_user_addr(f->esp);
   c = *((int*)(f->esp));
   switch(c){
     //zero argument
@@ -361,7 +362,7 @@ void check_user_addr(const void *vaddr)
   {
     /* check it is unmmapped virtual pointer 
        function from pagedir.c */
-    if(lookup_page (active_pd (),vaddr,false) == NULL)
+    if(!is_user_vaddr(vaddr))
     {
       is_vaild_uaddr = false;
     }
@@ -369,7 +370,8 @@ void check_user_addr(const void *vaddr)
     {
       /* check it is kernel address pointer 
          function from vaddr.h */
-      is_vaild_uaddr = is_user_vaddr(vaddr);
+      is_vaild_uaddr = !( pagedir_get_page (active_pd (),(char*)vaddr) == NULL
+    || pagedir_get_page (active_pd (),(char*)vaddr + 7) == NULL ) ;
     }
   }
 
