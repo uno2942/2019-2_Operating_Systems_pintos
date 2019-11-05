@@ -290,7 +290,7 @@ syscall_handler (struct intr_frame *f)
   int c;
   int arg0;
   int arg1;
-  int arg2;
+  int arg2; 
   check_user_addr(f->esp);
   c = *((int*)(f->esp));
   switch(c){
@@ -305,6 +305,9 @@ syscall_handler (struct intr_frame *f)
     case SYS_FILESIZE:
     case SYS_TELL:
     case SYS_CLOSE: 
+
+    check_user_addr((int*)(f->esp)+1);
+
     arg0 = *((int*)(f->esp)+1);
 
       switch(c){
@@ -323,6 +326,10 @@ syscall_handler (struct intr_frame *f)
     
     case SYS_CREATE: 
     case SYS_SEEK:
+
+    check_user_addr((int*)(f->esp)+1);
+    check_user_addr((int*)(f->esp)+2);
+
     arg0 = *((int*)(f->esp)+1);
     arg1 = *((int*)(f->esp)+2);
       
@@ -334,6 +341,11 @@ syscall_handler (struct intr_frame *f)
     
     case SYS_READ: 
     case SYS_WRITE: 
+
+    check_user_addr((int*)(f->esp)+1);
+    check_user_addr((int*)(f->esp)+2);
+    check_user_addr((int*)(f->esp)+3);
+
     arg0 = *((int*)(f->esp)+1);
     arg1 = *((int*)(f->esp)+2);
     arg2 = *((int*)(f->esp)+3);
@@ -353,6 +365,8 @@ syscall_handler (struct intr_frame *f)
 void check_user_addr(const void *vaddr)
 {
   bool is_vaild_uaddr = true;
+  //printf("PHYS_BASE is : %x\n", (int)PHYS_BASE);
+  //printf("%x,\t %x\n",(int)vaddr, (int)(vaddr + 3));
   /* check it is null pointer */
   if (vaddr == NULL)
   {
@@ -362,7 +376,7 @@ void check_user_addr(const void *vaddr)
   {
     /* check it is unmmapped virtual pointer 
        function from pagedir.c */
-    if(!is_user_vaddr(vaddr))
+    if(!is_user_vaddr(vaddr) || !is_user_vaddr((char*)vaddr + 3))
     {
       is_vaild_uaddr = false;
     }
@@ -371,7 +385,7 @@ void check_user_addr(const void *vaddr)
       /* check it is kernel address pointer 
          function from vaddr.h */
       is_vaild_uaddr = !( pagedir_get_page (active_pd (),(char*)vaddr) == NULL
-    || pagedir_get_page (active_pd (),(char*)vaddr + 7) == NULL ) ;
+    || pagedir_get_page (active_pd (),(char*)vaddr + 3) == NULL ) ;
     }
   }
 
@@ -382,6 +396,7 @@ void check_user_addr(const void *vaddr)
        close_files is in thread_handle*/
 
     /* terminate process */
+    //thread_current()->ev->exit_value = -1;
     thread_exit ();
   }
 
