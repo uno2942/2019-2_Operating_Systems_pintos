@@ -8,6 +8,7 @@
 #include "userprog/gdt.h"
 #include "userprog/pagedir.h"
 #include "userprog/tss.h"
+#include "userprog/syscall.h"
 #include "filesys/directory.h"
 #include "filesys/file.h"
 #include "filesys/filesys.h"
@@ -105,7 +106,9 @@ start_process (void *file_name_)
   if_.cs = SEL_UCSEG;
   if_.eflags = FLAG_IF | FLAG_MBS;
   
+  deny_lock_acquire();
   success = load (file_name, &if_.eip, &if_.esp);
+  deny_lock_release();
 
   //set whether load is success and load is complete.
   thread_current()->ev->load_success = success;
@@ -383,7 +386,10 @@ load (const char *file_name, void (**eip) (void), void **esp)
       }
 
 
+  //Denying Writes to Executables from opening.
+
   file = filesys_open (real_file_name);
+  
   if (file == NULL) 
     {
       printf ("load: %s: open failed\n", real_file_name);
@@ -481,9 +487,15 @@ load (const char *file_name, void (**eip) (void), void **esp)
  if(file_name_dump != NULL)
    free(file_name_dump);
 
-// setup_stack_with_arguments(esp, file);
   /* We arrive here whether the load is successful or not. */
-  file_close (file);
+  if(success)
+    {
+      thread_current()->file = file;
+      file_deny_write(file);
+    }
+  else
+    file_close (file);
+
   return success;
 }
 
@@ -571,7 +583,7 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
   ASSERT ((read_bytes + zero_bytes) % PGSIZE == 0);
   ASSERT (pg_ofs (upage) == 0);
   ASSERT (ofs % PGSIZE == 0);
-
+  
   file_seek (file, ofs);
   while (read_bytes > 0 || zero_bytes > 0) 
     {

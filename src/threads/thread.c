@@ -344,10 +344,10 @@ thread_exit (void)
   enum intr_level old_level;
   ASSERT (!intr_context ());
 
+#ifdef USERPROG
+
   //print termination message.
   printf ("%s: exit(%d)\n", thread_current()->name, thread_current()->ev->exit_value);
-
-#ifdef USERPROG
 
   //Need to unlock the locks related to this thread.
 
@@ -562,6 +562,7 @@ init_thread (struct thread *t, const char *name, int priority)
   strlcpy (t->name, name, sizeof t->name);
   t->stack = (uint8_t *) t + PGSIZE;
   t->priority = priority;
+  t->file = NULL;
   t->magic = THREAD_MAGIC;
 
   old_level = intr_disable ();

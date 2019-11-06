@@ -7,6 +7,7 @@
 #include "threads/malloc.h"
 #include "threads/interrupt.h"
 #include "threads/vaddr.h"
+#include "threads/synch.h"
 #include "filesys/filesys.h"
 #include "filesys/file.h"
 #include "filesys/inode.h"
@@ -20,6 +21,7 @@ static int fd_count;
 //the list having file_descriptor data.
 static struct list fd_list;
 
+static struct lock deny_lock;
 //file_descriptor to handle abstraction of file for user.
 
 struct file_descriptor{
@@ -47,6 +49,19 @@ void tell_handle (struct intr_frame *f, int fd);
 void close_handle (struct intr_frame *f, int fd);
 
 static void syscall_handler (struct intr_frame *);
+void set_deny_of_file_and_close(struct file* file_, tid_t t);
+
+void 
+deny_lock_acquire(void)
+{
+  lock_acquire(&deny_lock);
+}
+
+void 
+deny_lock_release(void)
+{
+  lock_release(&deny_lock);
+}
 
 //find file having fd value FD.
 struct file*
@@ -97,6 +112,7 @@ syscall_init (void)
 {
   fd_count = 2;
   list_init (&fd_list);
+  lock_init (&deny_lock);
   intr_register_int (0x30, 3, INTR_ON, syscall_handler, "syscall");
 }
 
@@ -109,6 +125,9 @@ void
 exit_handle (struct intr_frame *f UNUSED, int status)
 {
   thread_current()->ev->exit_value = status;
+  
+  file_close(thread_current()->file);
+
   thread_exit();
 }
 
@@ -184,7 +203,7 @@ filesize_handle (struct intr_frame *f, int fd)
     struct file* file = find_file(fd);
     if(file!=NULL)
       {//is buffer valid
-      f->eax = inode_length (file_get_inode(file));
+      f->eax = file_length (file);
       }
 }
 
@@ -210,21 +229,25 @@ read_handle (struct intr_frame *f, int fd, void *buffer, unsigned size)
 void
 write_handle (struct intr_frame *f, int fd, const void *buffer, unsigned size)
 {
+  deny_lock_acquire();
   struct file* file = find_file(fd);
   if(file!=NULL)
     {
       //is buffer valid
       check_user_addr(buffer);
       f->eax = file_write (file, buffer, size);
+      deny_lock_release();
       return;
     }
   else if(fd==1)
   {
     putbuf(buffer, size);
     f->eax = 1; //is it right?
+    deny_lock_release();
     return;
   }
   f->eax = 0;
+  deny_lock_release();
 }
 
 void
