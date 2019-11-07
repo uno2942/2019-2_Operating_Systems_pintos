@@ -332,16 +332,26 @@ delete_ev_in_child(struct thread* t){
     ev_instance = list_entry (e, struct ev, elem);
     if(ev_instance->parent == t)
       {
+        if(!ev_instance->is_exit)
+          ev_instance->is_deletable_by_child = true;
+      }
+  }
+  barrier();
+  for (e = list_begin (&exit_value_list); e != list_end (&exit_value_list);
+      e = list_next (e))
+  {
+    ev_instance = list_entry (e, struct ev, elem);
+    if(ev_instance->parent == t)
+      {
         if(ev_instance->is_exit)
           {
             e=list_remove(e);
             e=e->prev;
             free(ev_instance);
           }
-        else
-          ev_instance->is_deletable_by_child = true;
       }
   }
+
   lock_release(&ev_lock);
 }
 void
@@ -353,7 +363,8 @@ thread_exit (void)
 #ifdef USERPROG
 
   //print termination message.
-  printf ("%s: exit(%d)\n", thread_current()->name, thread_current()->ev->exit_value);
+  if(thread_current()->is_user)
+    printf ("%s: exit(%d)\n", thread_current()->name, thread_current()->ev->exit_value);
 
   file_lock_acquire();
   file_close(thread_current()->file);
@@ -367,9 +378,12 @@ thread_exit (void)
 
   old_level = intr_disable ();
   delete_ev_in_child(thread_current());
+
   if(thread_current()->ev->is_deletable_by_child)
-    {
+    {  
+      lock_acquire(&ev_lock);
       list_remove (&thread_current()->ev->elem);
+      lock_release(&ev_lock);
       free (thread_current()->ev);
     }
   if(thread_current()->ev->wait_sema!=NULL)
@@ -572,6 +586,7 @@ init_thread (struct thread *t, const char *name, int priority)
   t->stack = (uint8_t *) t + PGSIZE;
   t->priority = priority;
   t->file = NULL;
+  t->is_user = false;
   t->magic = THREAD_MAGIC;
 
   old_level = intr_disable ();

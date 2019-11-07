@@ -104,6 +104,7 @@ struct thread
     uint32_t *pagedir;                  /* Page directory. */
     struct ev* ev;
     struct file* file;
+    bool is_user;
 #endif
 
     /* Owned by thread.c. */
