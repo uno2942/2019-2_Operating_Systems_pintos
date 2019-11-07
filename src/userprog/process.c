@@ -106,9 +106,9 @@ start_process (void *file_name_)
   if_.cs = SEL_UCSEG;
   if_.eflags = FLAG_IF | FLAG_MBS;
   
-  deny_lock_acquire();
+  file_lock_acquire();
   success = load (file_name, &if_.eip, &if_.esp);
-  deny_lock_release();
+  file_lock_release();
 
   //set whether load is success and load is complete.
   thread_current()->ev->load_success = success;

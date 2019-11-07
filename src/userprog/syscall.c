@@ -21,7 +21,7 @@ static int fd_count;
 //the list having file_descriptor data.
 static struct list fd_list;
 
-static struct lock deny_lock;
+static struct lock file_lock;
 //file_descriptor to handle abstraction of file for user.
 
 struct file_descriptor{
@@ -52,15 +52,15 @@ static void syscall_handler (struct intr_frame *);
 void set_deny_of_file_and_close(struct file* file_, tid_t t);
 
 void 
-deny_lock_acquire(void)
+file_lock_acquire(void)
 {
-  lock_acquire(&deny_lock);
+  lock_acquire(&file_lock);
 }
 
 void 
-deny_lock_release(void)
+file_lock_release(void)
 {
-  lock_release(&deny_lock);
+  lock_release(&file_lock);
 }
 
 //find file having fd value FD.
@@ -71,6 +71,7 @@ find_file(int fd)
   struct file_descriptor *fd_ = NULL;
   struct list_elem* e;
   //binary search can be applied.
+  lock_acquire(&file_lock);
   for (e = list_begin (&fd_list); e != list_end (&fd_list);
        e = list_next (e))
     {
@@ -82,6 +83,7 @@ find_file(int fd)
     {
       file = fd_->file;
     }
+  lock_release(&file_lock);
   return file;
 }
 
@@ -92,6 +94,7 @@ close_files(tid_t owner)
   struct file_descriptor *fd_ = NULL;
   struct list_elem* e;
   //binary search can be applied.
+  lock_acquire(&file_lock);
   for (e = list_begin (&fd_list); e != list_end (&fd_list);
        e = list_next (e))
     {
@@ -104,6 +107,7 @@ close_files(tid_t owner)
           free(fd_);
         }
     }
+  lock_release(&file_lock);
 }
 
 
@@ -112,7 +116,7 @@ syscall_init (void)
 {
   fd_count = 2;
   list_init (&fd_list);
-  lock_init (&deny_lock);
+  lock_init (&file_lock);
   intr_register_int (0x30, 3, INTR_ON, syscall_handler, "syscall");
 }
 
@@ -184,11 +188,13 @@ open_handle (struct intr_frame *f, const char *file)
     goto fail;
   struct file_descriptor* new_fd = (struct file_descriptor*) malloc(sizeof(struct file_descriptor));
   //I need to free it.
+  lock_acquire(&file_lock);
   new_fd->fd = fd_count;
   new_fd->file = file_;
   new_fd->owner = thread_current()->tid;
   fd_count++;
   list_push_back(&fd_list, &new_fd->elem);
+  lock_release(&file_lock);
   f->eax = new_fd->fd;
   return;
   
@@ -215,7 +221,9 @@ read_handle (struct intr_frame *f, int fd, void *buffer, unsigned size)
     {
       //is buffer valid
       check_user_addr(buffer);
+      file_lock_acquire();
       f->eax = file_read (file, buffer, size);
+      file_lock_release();
       return;
     }
   else if(fd==0)
@@ -229,25 +237,23 @@ read_handle (struct intr_frame *f, int fd, void *buffer, unsigned size)
 void
 write_handle (struct intr_frame *f, int fd, const void *buffer, unsigned size)
 {
-  deny_lock_acquire();
   struct file* file = find_file(fd);
   if(file!=NULL)
     {
       //is buffer valid
       check_user_addr(buffer);
+      file_lock_acquire();
       f->eax = file_write (file, buffer, size);
-      deny_lock_release();
+      file_lock_release();
       return;
     }
   else if(fd==1)
   {
     putbuf(buffer, size);
     f->eax = 1; //is it right?
-    deny_lock_release();
     return;
   }
   f->eax = 0;
-  deny_lock_release();
 }
 
 void
@@ -283,6 +289,7 @@ close_handle (struct intr_frame *f, int fd)
   //binary search can be applied.
 
   //find the corresponding file and close it. Set f->eax = 1 and return;
+  lock_acquire(&file_lock);
   for (e = list_begin (&fd_list); e != list_end (&fd_list);
        e = list_next (e))
     {
@@ -294,10 +301,11 @@ close_handle (struct intr_frame *f, int fd)
           file_close(fd_->file);
           free(fd_);
           f->eax = 1;
+          lock_release(&file_lock);
           return;
         }
     }
-  
+  lock_release(&file_lock);
   //could not find the corresponding file.
   f->eax = 0;
 }
