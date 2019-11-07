@@ -63,8 +63,9 @@ bool thread_mlfqs;
 
 
 
-struct list exit_value_list;
+static struct list exit_value_list;
 
+static struct lock ev_lock;
 
 void init_ev(struct thread* t);
 void delete_ev_in_child(struct thread* t);
@@ -104,6 +105,7 @@ thread_init (void)
   ASSERT (intr_get_level () == INTR_OFF);
 
   lock_init (&tid_lock);
+  lock_init (&ev_lock);
   list_init (&ready_list);
   list_init (&all_list);
   list_init(&exit_value_list);
@@ -177,7 +179,9 @@ init_ev(struct thread* t)
   ev_instance->load_sema = NULL;
   ev_instance->wait_sema = NULL;
   ev_instance->is_loaded = false;
+  lock_acquire(&ev_lock);
   list_push_back(&exit_value_list, &ev_instance->elem);
+  lock_release(&ev_lock);
   t->ev = ev_instance;
 }
 
@@ -321,6 +325,7 @@ delete_ev_in_child(struct thread* t){
   struct list_elem* e;
   struct ev* ev_instance;
 
+  lock_acquire(&ev_lock);
   for (e = list_begin (&exit_value_list); e != list_end (&exit_value_list);
       e = list_next (e))
   {
@@ -337,6 +342,7 @@ delete_ev_in_child(struct thread* t){
           ev_instance->is_deletable_by_child = true;
       }
   }
+  lock_release(&ev_lock);
 }
 void
 thread_exit (void) 
@@ -349,6 +355,9 @@ thread_exit (void)
   //print termination message.
   printf ("%s: exit(%d)\n", thread_current()->name, thread_current()->ev->exit_value);
 
+  file_lock_acquire();
+  file_close(thread_current()->file);
+  file_lock_release();
   //Need to unlock the locks related to this thread.
 
   //First close files related with this thread.
@@ -711,6 +720,7 @@ get_ev_elem(tid_t tid)
   while(i<10000000)
     i++;//tentative
 */
+  lock_acquire(&ev_lock);
   for (e = list_begin (&exit_value_list); e != list_end (&exit_value_list);
         e = list_next (e))
     {
@@ -718,6 +728,7 @@ get_ev_elem(tid_t tid)
       if(ev_instance->tid == tid)
         break;
     }
+  lock_release(&ev_lock);
     if(ev_instance == NULL)
       return NULL;
     return e;

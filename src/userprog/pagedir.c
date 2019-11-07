@@ -6,6 +6,7 @@
 #include "threads/pte.h"
 #include "threads/palloc.h"
 
+static uint32_t *active_pd (void);
 static void invalidate_pagedir (uint32_t *);
 
 /* Creates a new page directory that has mappings for kernel
@@ -52,7 +53,7 @@ pagedir_destroy (uint32_t *pd)
    on CREATE.  If CREATE is true, then a new page table is
    created and a pointer into it is returned.  Otherwise, a null
    pointer is returned. */
-uint32_t *
+static uint32_t *
 lookup_page (uint32_t *pd, const void *vaddr, bool create)
 {
   uint32_t *pt, *pde;
@@ -230,7 +231,7 @@ pagedir_activate (uint32_t *pd)
 }
 
 /* Returns the currently active page directory. */
-uint32_t *
+static uint32_t *
 active_pd (void) 
 {
   /* Copy CR3, the page directory base register (PDBR), into
@@ -259,4 +260,42 @@ invalidate_pagedir (uint32_t *pd)
          "Translation Lookaside Buffers (TLBs)". */
       pagedir_activate (pd);
     } 
+}
+
+
+/* check given pointer is vaild user address`s
+   if invalid, release all resource & terminate process */
+bool
+check_user_addr(const void *vaddr)
+{
+  bool is_vaild_uaddr = true;
+  /* check it is null pointer */
+  if (vaddr == NULL)
+  {
+    is_vaild_uaddr = false;
+  }
+  else
+  {
+    /* check it is unmmapped virtual pointer 
+       function from pagedir.c */
+    if(!is_user_vaddr(vaddr) || !is_user_vaddr((char*)vaddr + 3))
+    {
+      is_vaild_uaddr = false;
+    }
+    else
+    {
+      /* check it is kernel address pointer 
+         function from vaddr.h */
+      is_vaild_uaddr = !( pagedir_get_page (active_pd (),(char*)vaddr) == NULL
+    || pagedir_get_page (active_pd (),(char*)vaddr + 3) == NULL ) ;
+    }
+  }
+
+  /* handle process when invalid */
+  if(!is_vaild_uaddr)
+  {
+    /* terminate process */
+    return false;
+  }
+  return true;
 }

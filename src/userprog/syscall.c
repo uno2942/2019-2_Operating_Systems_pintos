@@ -49,7 +49,6 @@ void tell_handle (struct intr_frame *f, int fd);
 void close_handle (struct intr_frame *f, int fd);
 
 static void syscall_handler (struct intr_frame *);
-void set_deny_of_file_and_close(struct file* file_, tid_t t);
 
 void 
 file_lock_acquire(void)
@@ -129,8 +128,6 @@ void
 exit_handle (struct intr_frame *f UNUSED, int status)
 {
   thread_current()->ev->exit_value = status;
-  
-  file_close(thread_current()->file);
 
   thread_exit();
 }
@@ -142,14 +139,13 @@ exit_handle (struct intr_frame *f UNUSED, int status)
 void
 exec_handle (struct intr_frame *f, const char *file)
 {
-  if(file==NULL)
-    goto fail;
-  check_user_addr(file);
+  if(!check_user_addr(file))
+    exit_handle(NULL, -1);
   f->eax = (uint32_t)process_execute(file);
   return;
-  fail:
-    f->eax = -1;
-    return;
+  
+  f->eax = -1;
+  return;
   //need synch
 }
 /*
@@ -166,23 +162,24 @@ wait_handle (struct intr_frame *f, tid_t pid)
 void
 create_handle (struct intr_frame *f, const char *file, unsigned initial_size)
 {
-  check_user_addr(file);
+  if(!check_user_addr(file))
+    exit_handle(NULL, -1);
   f->eax = filesys_create (file, initial_size);
 }
 
 void
 remove_handle (struct intr_frame *f, const char *file)
 {
-  check_user_addr(file);
+  if(!check_user_addr(file))
+    exit_handle(NULL, -1);
    f->eax = filesys_remove (file);
 }
 
 void
 open_handle (struct intr_frame *f, const char *file)
 {
-  if(file==NULL)
-    goto fail;
-  check_user_addr(file);
+  if(!check_user_addr(file))
+    exit_handle(NULL, -1);
   struct file* file_ = filesys_open (file);
   if(file_==NULL)
     goto fail;
@@ -220,11 +217,12 @@ read_handle (struct intr_frame *f, int fd, void *buffer, unsigned size)
   if(file!=NULL)
     {
       //is buffer valid
-      check_user_addr(buffer);
-      file_lock_acquire();
-      f->eax = file_read (file, buffer, size);
-      file_lock_release();
-      return;
+    if(!check_user_addr(buffer))
+      exit_handle(NULL, -1);
+    file_lock_acquire();
+    f->eax = file_read (file, buffer, size);
+    file_lock_release();
+    return;
     }
   else if(fd==0)
   {
@@ -241,7 +239,8 @@ write_handle (struct intr_frame *f, int fd, const void *buffer, unsigned size)
   if(file!=NULL)
     {
       //is buffer valid
-      check_user_addr(buffer);
+    if(!check_user_addr(buffer))
+      exit_handle(NULL, -1);
       file_lock_acquire();
       f->eax = file_write (file, buffer, size);
       file_lock_release();
@@ -322,7 +321,8 @@ syscall_handler (struct intr_frame *f)
   int arg0;
   int arg1;
   int arg2; 
-  check_user_addr(f->esp);
+  if(!check_user_addr(f->esp))
+    exit_handle(NULL, -1);
   c = *((int*)(f->esp));
   switch(c){
     //zero argument
@@ -337,7 +337,8 @@ syscall_handler (struct intr_frame *f)
     case SYS_TELL:
     case SYS_CLOSE: 
 
-    check_user_addr((int*)(f->esp)+1);
+    if(!check_user_addr((int*)(f->esp)+1))
+      exit_handle(NULL, -1);
 
     arg0 = *((int*)(f->esp)+1);
 
@@ -358,8 +359,8 @@ syscall_handler (struct intr_frame *f)
     case SYS_CREATE: 
     case SYS_SEEK:
 
-    check_user_addr((int*)(f->esp)+1);
-    check_user_addr((int*)(f->esp)+2);
+    if((!check_user_addr((int*)(f->esp)+1)) || (!check_user_addr((int*)(f->esp)+2)))
+      exit_handle(NULL, -1);
 
     arg0 = *((int*)(f->esp)+1);
     arg1 = *((int*)(f->esp)+2);
@@ -373,9 +374,9 @@ syscall_handler (struct intr_frame *f)
     case SYS_READ: 
     case SYS_WRITE: 
 
-    check_user_addr((int*)(f->esp)+1);
-    check_user_addr((int*)(f->esp)+2);
-    check_user_addr((int*)(f->esp)+3);
+    if((!check_user_addr((int*)(f->esp)+1)) || (!check_user_addr((int*)(f->esp)+2))
+        || (!check_user_addr((int*)(f->esp)+3)))
+      exit_handle(NULL, -1);
 
     arg0 = *((int*)(f->esp)+1);
     arg1 = *((int*)(f->esp)+2);
@@ -387,48 +388,5 @@ syscall_handler (struct intr_frame *f)
       }
     break;
   }
-//  printf ("system call!\n");
 }
 
-
-/* check given pointer is vaild user address`s
-   if invalid, release all resource & terminate process */
-void check_user_addr(const void *vaddr)
-{
-  bool is_vaild_uaddr = true;
-  //printf("PHYS_BASE is : %x\n", (int)PHYS_BASE);
-  //printf("%x,\t %x\n",(int)vaddr, (int)(vaddr + 3));
-  /* check it is null pointer */
-  if (vaddr == NULL)
-  {
-    is_vaild_uaddr = false;
-  }
-  else
-  {
-    /* check it is unmmapped virtual pointer 
-       function from pagedir.c */
-    if(!is_user_vaddr(vaddr) || !is_user_vaddr((char*)vaddr + 3))
-    {
-      is_vaild_uaddr = false;
-    }
-    else
-    {
-      /* check it is kernel address pointer 
-         function from vaddr.h */
-      is_vaild_uaddr = !( pagedir_get_page (active_pd (),(char*)vaddr) == NULL
-    || pagedir_get_page (active_pd (),(char*)vaddr + 3) == NULL ) ;
-    }
-  }
-
-  /* handle process when invalid */
-  if(!is_vaild_uaddr)
-  {
-    /* need release all resource. lock & malloc 
-       close_files is in thread_handle*/
-
-    /* terminate process */
-    //thread_current()->ev->exit_value = -1;
-    thread_exit ();
-  }
-
-}

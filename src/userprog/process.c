@@ -179,12 +179,13 @@ process_wait (tid_t child_tid)
     ev_instance->wait_sema = &sema;
     sema_down(&sema);
   }
-  intr_set_level (old_level);
 
   //Delete the ev from list and delete the ev.
   //Return value is from the ev.
   e=list_remove(e);
   ret_val=ev_instance->exit_value;
+  intr_set_level (old_level);
+
   free(ev_instance);
   return ret_val;
 }
@@ -384,9 +385,6 @@ load (const char *file_name, void (**eip) (void), void **esp)
         printf ("open failed\n");
         goto done;
       }
-
-
-  //Denying Writes to Executables from opening.
 
   file = filesys_open (real_file_name);
   
