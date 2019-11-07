@@ -325,7 +325,6 @@ delete_ev_in_child(struct thread* t){
   struct list_elem* e;
   struct ev* ev_instance;
 
-  lock_acquire(&ev_lock);
   for (e = list_begin (&exit_value_list); e != list_end (&exit_value_list);
       e = list_next (e))
   {
@@ -336,7 +335,7 @@ delete_ev_in_child(struct thread* t){
           ev_instance->is_deletable_by_child = true;
       }
   }
-  barrier();
+  lock_acquire(&ev_lock);
   for (e = list_begin (&exit_value_list); e != list_end (&exit_value_list);
       e = list_next (e))
   {
@@ -351,7 +350,6 @@ delete_ev_in_child(struct thread* t){
           }
       }
   }
-
   lock_release(&ev_lock);
 }
 void
