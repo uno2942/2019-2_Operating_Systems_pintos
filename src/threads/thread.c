@@ -53,7 +53,7 @@ static long long kernel_ticks;  /* # of timer ticks in kernel threads. */
 static long long user_ticks;    /* # of timer ticks in user programs. */
 
 /* Scheduling. */
-#define TIME_SLICE 4            /* # of timer ticks to give each thread. */
+#define TIME_SLICE 1            /* # of timer ticks to give each thread. */
 static unsigned thread_ticks;   /* # of timer ticks since last yield. */
 
 /* If false (default), use round-robin scheduler.
@@ -732,4 +732,14 @@ get_ev_elem(tid_t tid)
     if(ev_instance == NULL)
       return NULL;
     return e;
+}
+
+void ev_lock_acquire(void)
+{
+  lock_acquire(&ev_lock);
+}
+
+void ev_lock_release(void)
+{
+  lock_release(&ev_lock);
 }

@@ -164,7 +164,10 @@ create_handle (struct intr_frame *f, const char *file, unsigned initial_size)
 {
   if(!check_user_addr(file))
     exit_handle(NULL, -1);
+  lock_acquire(&file_lock);
   f->eax = filesys_create (file, initial_size);
+  lock_release(&file_lock);
+  
 }
 
 void
@@ -172,7 +175,9 @@ remove_handle (struct intr_frame *f, const char *file)
 {
   if(!check_user_addr(file))
     exit_handle(NULL, -1);
+  lock_acquire(&file_lock);
    f->eax = filesys_remove (file);
+  lock_release(&file_lock);
 }
 
 void
@@ -180,12 +185,17 @@ open_handle (struct intr_frame *f, const char *file)
 {
   if(!check_user_addr(file))
     exit_handle(NULL, -1);
+  lock_acquire(&file_lock);
   struct file* file_ = filesys_open (file);
+  lock_release(&file_lock);
   if(file_==NULL)
-    goto fail;
+    {
+      f->eax = -1;
+      return;
+    }
+  lock_acquire(&file_lock);
   struct file_descriptor* new_fd = (struct file_descriptor*) malloc(sizeof(struct file_descriptor));
   //I need to free it.
-  lock_acquire(&file_lock);
   new_fd->fd = fd_count;
   new_fd->file = file_;
   new_fd->owner = thread_current()->tid;
@@ -194,10 +204,6 @@ open_handle (struct intr_frame *f, const char *file)
   lock_release(&file_lock);
   f->eax = new_fd->fd;
   return;
-  
-  fail:
-    f->eax = -1;
-    return;
 }
 
 void
@@ -205,8 +211,10 @@ filesize_handle (struct intr_frame *f, int fd)
 {
     struct file* file = find_file(fd);
     if(file!=NULL)
-      {//is buffer valid
+      {
+      lock_acquire(&file_lock);
       f->eax = file_length (file);
+      lock_release(&file_lock);
       }
 }
 
@@ -262,7 +270,9 @@ seek_handle (struct intr_frame *f UNUSED, int fd, unsigned position)
   if(file!=NULL)
     {
       //is position valid
+      lock_acquire(&file_lock);
       file_seek (file, position);
+      lock_release(&file_lock);
     }
 }
 
@@ -273,7 +283,9 @@ tell_handle (struct intr_frame *f, int fd)
   if(file!=NULL)
     {
       //is buffer valid
+      lock_acquire(&file_lock);
       f->eax = file_tell (file);
+      lock_release(&file_lock);
       return;
     }
   f->eax = 0;

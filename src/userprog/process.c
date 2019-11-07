@@ -182,8 +182,10 @@ process_wait (tid_t child_tid)
 
   //Delete the ev from list and delete the ev.
   //Return value is from the ev.
-  e=list_remove(e);
+  ev_lock_acquire();
+  list_remove(e);
   ret_val=ev_instance->exit_value;
+  ev_lock_release();
   intr_set_level (old_level);
 
   free(ev_instance);

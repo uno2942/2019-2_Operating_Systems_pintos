@@ -161,4 +161,7 @@ void thread_set_nice (int);
 int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
 struct list_elem* get_ev_elem(tid_t tid);
+
+void ev_lock_acquire(void);
+void ev_lock_release(void);
 #endif /* threads/thread.h */
