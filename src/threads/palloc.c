@@ -84,7 +84,12 @@ palloc_get_multiple (enum palloc_flags flags, size_t page_cnt)
   if (page_idx != BITMAP_ERROR)
     pages = pool->base + PGSIZE * page_idx;
   else
+  {
+    lock_acquire(&pool->lock);
+      //Need eviction algorithm.
+    lock_release(&pool->lock);
     pages = NULL;
+  }
 
   if (pages != NULL) 
     {
