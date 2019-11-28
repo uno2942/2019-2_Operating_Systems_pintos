@@ -2,20 +2,42 @@
 #include <hash.h>
 #include <list.h>
 #include "threads/thread.h"
+#include "threads/malloc.h"
 #include "threads/synch.h"
 
 static struct hash frame_table;
 static struct lock frame_lock;
 
+unsigned frame_hash (const struct hash_elem *p_, void *aux UNUSED);
+bool frame_less (const struct hash_elem *a_, const struct hash_elem *b_, void *aux UNUSED);
+
+unsigned
+frame_hash (const struct hash_elem *p_, void *aux UNUSED)
+{
+  const struct frame *p = hash_entry (p_, struct frame, hash_elem);
+  return hash_bytes (&p->paddr, sizeof p->paddr);
+}
+
+/* Returns true if page a precedes page b. */
+bool
+frame_less (const struct hash_elem *a_, const struct hash_elem *b_,
+           void *aux UNUSED)
+{
+  const struct frame *a = hash_entry (a_, struct frame, hash_elem);
+  const struct frame *b = hash_entry (b_, struct frame, hash_elem);
+
+  return a->paddr < b->paddr;
+}
+
 void
 frame_table_init (void)
 {
-    hash_init(&frame_table);
+    hash_init(&frame_table, frame_hash, frame_less, NULL);
     lock_init(&frame_lock);
 }
 
 struct frame *
-frame_table_lookup (const void *paddr)
+frame_table_lookup (void *paddr)
 {
   struct frame f;
   struct hash_elem *e;
@@ -35,7 +57,7 @@ make_frame (enum write_to write_to,
             bool pin
            )
 {
-    temp_frame = (struct frame *) malloc (1, sizeof (struct frame) );
+    struct frame *temp_frame = (struct frame *) malloc (sizeof (struct frame) );
     
     temp_frame->write_to = write_to;
     temp_frame->where_to_write = where_to_write;
@@ -44,21 +66,21 @@ make_frame (enum write_to write_to,
     temp_frame->pin = pin;
     
     list_init (&temp_frame->page_list);
-    page_temp = (struct pn *) malloc (sizeof (struct page_for_frame_table));
+    struct page_for_frame_table *page_temp = (struct page_for_frame_table *) malloc (sizeof (struct page_for_frame_table));
     page_temp->page = page;
-    page_temp->onwer = thread_current ();
-    list_push_back (temp_frame->page_list, &page_temp->list_elem);
+    page_temp->owner = thread_current ();
+    list_push_back (&temp_frame->page_list, &page_temp->list_elem);
 
     return temp_frame;
 }
 void
 insert_to_hash_table (enum write_to write_to, struct frame *frame)
 {
-    struct hash_elem *e
+    struct hash_elem *e;
     struct frame *temp_frame;
     struct page_for_frame_table *page_temp;
     lock_acquire(&frame_lock);
-    e = frame_table_lookup (paddr);
+    e = frame_table_lookup (frame->paddr);
     if (!e)
         {
             temp_frame = hash_entry (e, struct frame, hash_elem);
@@ -67,8 +89,8 @@ insert_to_hash_table (enum write_to write_to, struct frame *frame)
 
             page_temp->page = list_entry (list_begin (&frame->page_list), 
                                 struct page_for_frame_table, list_elem)->page;
-            page_temp->onwer = thread_current ();
-            list_push_back (temp_frame->page_list, &page_temp->list_elem);
+            page_temp->owner = thread_current ();
+            list_push_back (&temp_frame->page_list, &page_temp->list_elem);
             free (frame);
         }
     else
@@ -139,7 +161,7 @@ delete_frame_from_frame_table(void *paddr, struct thread* owner)
     temp_frame = hash_entry (h_elem, struct frame, hash_elem);
     
     page_list = &temp_frame->page_list;
-    while (list_size (p_list)==0)
+    while (list_size (page_list)==0)
     {
         l_elem = list_pop_front (page_list);
         page_temp = list_entry (l_elem, struct page_for_frame_table, list_elem);
@@ -152,7 +174,7 @@ delete_frame_from_frame_table(void *paddr, struct thread* owner)
     return true;
 }
 
-struct list_elem *
+struct page_for_frame_table *
 find_elem_in_page_list (struct list *page_list, void *page, struct thread* owner)
 {
     struct page_for_frame_table *page_temp;
@@ -165,7 +187,7 @@ find_elem_in_page_list (struct list *page_list, void *page, struct thread* owner
           page_temp = list_entry (e, struct page_for_frame_table, list_elem);
           if(page_temp->page == page && page_temp->owner == page_temp)
           {
-              return e;
+              return list_entry (e, struct page_for_frame_table, list_elem);
           }
       }
       return NULL;
