@@ -1,31 +1,8 @@
+#include "vm/frame.h"
 #include <hash.h>
 #include <list.h>
 #include "threads/thread.h"
 #include "threads/synch.h"
-#include "vm/frame.h"
-
-enum write_to 
-{
-    CODE, MMAP, DATA, SWAP
-};
-
-struct frame
-{
-    enum write_to write_to;
-    void *where_to_write;
-    uint32_t *write_size;
-    void *paddr;
-    bool pin;
-    struct list page_list;
-    struct hash_elem hash_elem;
-};
-
-struct page_for_frame_table
-{
-    void *page;
-    struct thread *owner;
-    struct list_elem list_elem;
-};
 
 static struct hash frame_table;
 static struct lock frame_lock;
@@ -37,7 +14,7 @@ frame_table_init (void)
     lock_init(&frame_lock);
 }
 
-struct hash_elem *
+struct frame *
 frame_table_lookup (const void *paddr)
 {
   struct frame f;
@@ -46,17 +23,36 @@ frame_table_lookup (const void *paddr)
   f.paddr = paddr;
   ASSERT (lock_held_by_current_thread (&frame_lock));
   e = hash_find (&frame_table, &f.hash_elem);
-  return e;
+  return hash_entry (e, struct frame, hash_elem);
 }
 
+struct frame*
+make_frame (enum write_to write_to,
+            void *where_to_write,
+            uint32_t *write_size,
+            void *paddr,
+            void *page,
+            bool pin
+           )
+{
+    temp_frame = (struct frame *) malloc (1, sizeof (struct frame) );
+    
+    temp_frame->write_to = write_to;
+    temp_frame->where_to_write = where_to_write;
+    temp_frame->write_size = write_size;
+    temp_frame->paddr = paddr;
+    temp_frame->pin = pin;
+    
+    list_init (&temp_frame->page_list);
+    page_temp = (struct pn *) malloc (sizeof (struct page_for_frame_table));
+    page_temp->page = page;
+    page_temp->onwer = thread_current ();
+    list_push_back (temp_frame->page_list, &page_temp->list_elem);
+
+    return temp_frame;
+}
 void
-insert_to_hash_table (enum write_to write_to,
-                           void *where_to_write,
-                           uint32_t *write_size,
-                           void *paddr,
-                           void *page;
-                           bool pin
-                     )
+insert_to_hash_table (enum write_to write_to, struct frame *frame)
 {
     struct hash_elem *e
     struct frame *temp_frame;
@@ -67,28 +63,19 @@ insert_to_hash_table (enum write_to write_to,
         {
             temp_frame = hash_entry (e, struct frame, hash_elem);
             page_temp = (struct pn *) malloc (sizeof (struct page_for_frame_table));
-            page_temp->page = page;
+            ASSERT (list_size (&frame->page_list) == 1);
+
+            page_temp->page = list_entry (list_begin (&frame->page_list), 
+                                struct page_for_frame_table, list_elem)->page;
             page_temp->onwer = thread_current ();
             list_push_back (temp_frame->page_list, &page_temp->list_elem);
+            free (frame);
         }
     else
     {
-        temp_frame = (struct frame *) malloc (1, sizeof (struct frame) );
-        
-        temp_frame->write_to = write_to;
-        temp_frame->where_to_write = where_to_write;
-        temp_frame->write_size = write_size;
-        temp_frame->paddr = paddr;
-        temp_frame->pin = pin;
-        
-        list_init (&temp_frame->page_list);
-        page_temp = (struct pn *) malloc (sizeof (struct page_for_frame_table));
-        page_temp->page = page;
-        page_temp->onwer = thread_current ();
-        list_push_back (temp_frame->page_list, &page_temp->list_elem);
-        
-        hash_insert (&frame_table, &temp_frame->hash_elem);
+        hash_insert (&frame_table, &frame->hash_elem);
     }
+    
     lock_release(&frame_lock);
     return;
 }
@@ -125,7 +112,7 @@ delete_page_from_frame_table(void *paddr, void *page, struct thread* owner)
     }
     else
     {
-        l_elem = find_elem_in_page_list(page_list, page,owner);
+        l_elem = find_elem_in_page_list(page_list, page, owner);
         list_remove (l_elem);
         page_temp = list_entry (l_elem, struct page_for_frame_table, list_elem);
         free(page_temp);
@@ -165,7 +152,7 @@ delete_frame_from_frame_table(void *paddr, struct thread* owner)
     return true;
 }
 
-struct list_elem*
+struct list_elem *
 find_elem_in_page_list (struct list *page_list, void *page, struct thread* owner)
 {
     struct page_for_frame_table *page_temp;
