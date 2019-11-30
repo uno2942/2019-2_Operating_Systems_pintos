@@ -4,7 +4,7 @@
 #include "userprog/gdt.h"
 #include "threads/interrupt.h"
 #include "threads/thread.h"
-
+#include "vm/page.h"
 /* Number of page faults processed. */
 static long long page_fault_cnt;
 
@@ -139,8 +139,43 @@ page_fault (struct intr_frame *f)
   /* Turn interrupts back on (they were only off so that we could
      be assured of reading CR2 before it changed). */
   intr_enable ();
+  if(user == true)
+      {
+      struct hash* sp_table = &thread_current()->sp_table;
+      struct hash_elem *h_elem = supplemental_page_table_lookup (sp_table, fault_addr);
+      if (h_elem == NULL) //maybe STACK fault
+      {
+         ...
+      }
+      struct spage* spage = hash_entry (h_elem, struct spage, hash_elem);
+      switch (spage->read_from)
+      {
+         case CODE_P:
+            if (load_segment_in_memory(spage->read_file, spage->where_to_read, pg_round_down (fault_addr),
+                  spage->read_size, PGSIZE-spage->read_size, false, spage->read_from)
+                  == false)
+               goto real_fault;
+            else
+               return;
+         case MMAP_P: 
+            if (load_segment_in_memory(spage->read_file, spage->where_to_read, pg_round_down (fault_addr),
+                  spage->read_size, PGSIZE-spage->read_size, true, spage->read_from)
+                  == false)
+               goto real_fault;
+            else
+               return;
+         case SWAP_P: break;
+         default: break;
+      }
+  }
+  else
+  {
 
+  }
+  
   /* Count page faults. */
+real_fault:
+
   page_fault_cnt++;
 
   /* Determine cause. */

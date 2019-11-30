@@ -1,7 +1,7 @@
 #ifndef VM_PAGE_H
 #define VM_PAGE_H
 #include <hash.h>
-
+#include "filesys/file.h"
 enum read_from 
 {
     CODE_P, MMAP_P, DATA_P, SWAP_P
@@ -11,6 +11,7 @@ struct spage
 {
     enum read_from read_from;
     void *where_to_read;        // If READ_FROM == SWAP, then it indicates slot #.
+    struct file *read_file;
     uint32_t read_size;
     void *page;
     struct hash_elem hash_elem;

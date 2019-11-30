@@ -76,7 +76,7 @@ make_frame (enum write_to write_to,
     return temp_frame;
 }
 void
-insert_to_hash_table (struct frame *frame)
+insert_to_frame_table (struct frame *frame)
 {
     struct frame *temp_frame;
     struct page_for_frame_table *page_temp;
