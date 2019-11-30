@@ -45,6 +45,8 @@ frame_table_lookup (void *paddr)
   f.paddr = paddr;
   ASSERT (lock_held_by_current_thread (&frame_lock));
   e = hash_find (&frame_table, &f.hash_elem);
+  if(e == NULL)
+    return NULL;
   return hash_entry (e, struct frame, hash_elem);
 }
 
@@ -74,17 +76,15 @@ make_frame (enum write_to write_to,
     return temp_frame;
 }
 void
-insert_to_hash_table (enum write_to write_to, struct frame *frame)
+insert_to_hash_table (struct frame *frame)
 {
-    struct hash_elem *e;
     struct frame *temp_frame;
     struct page_for_frame_table *page_temp;
     lock_acquire(&frame_lock);
-    e = frame_table_lookup (frame->paddr);
-    if (!e)
+    temp_frame = frame_table_lookup (frame->paddr);
+    if (!temp_frame)
         {
-            temp_frame = hash_entry (e, struct frame, hash_elem);
-            page_temp = (struct pn *) malloc (sizeof (struct page_for_frame_table));
+            page_temp = (struct page_for_frame_table *) malloc (sizeof (struct page_for_frame_table));
             ASSERT (list_size (&frame->page_list) == 1);
 
             page_temp->page = list_entry (list_begin (&frame->page_list), 
@@ -106,7 +106,6 @@ insert_to_hash_table (enum write_to write_to, struct frame *frame)
 bool
 delete_page_from_frame_table(void *paddr, void *page, struct thread* owner)
 {
-    struct hash_elem *h_elem;
     struct list_elem *l_elem;
 
     struct frame *temp_frame;
@@ -114,19 +113,18 @@ delete_page_from_frame_table(void *paddr, void *page, struct thread* owner)
     struct list *page_list;
 
     lock_acquire(&frame_lock);
-    h_elem = frame_table_lookup (paddr);
-    if (!h_elem)
+    temp_frame = frame_table_lookup (paddr);
+    if (!temp_frame)
         {
             lock_release(&frame_lock);
             return false;
         }
 
-    temp_frame = hash_entry (h_elem, struct frame, hash_elem);
     page_list = &temp_frame->page_list;
 
     if (list_size (page_list) == 1)
     {
-        hash_delete(&frame_table, h_elem);
+        hash_delete(&frame_table, &temp_frame->hash_elem);
         l_elem = list_pop_front (page_list);
         page_temp = list_entry (l_elem, struct page_for_frame_table, list_elem);
         free(page_temp);
@@ -135,6 +133,8 @@ delete_page_from_frame_table(void *paddr, void *page, struct thread* owner)
     else
     {
         l_elem = find_elem_in_page_list(page_list, page, owner);
+        if(!l_elem)
+            return false;
         list_remove (l_elem);
         page_temp = list_entry (l_elem, struct page_for_frame_table, list_elem);
         free(page_temp);
@@ -144,22 +144,19 @@ delete_page_from_frame_table(void *paddr, void *page, struct thread* owner)
 }
 
 bool
-delete_frame_from_frame_table(void *paddr, struct thread* owner)
+delete_frame_from_frame_table (void *paddr)
 {
-    struct hash_elem *h_elem;
     struct list_elem *l_elem;
     struct frame *temp_frame;
     struct page_for_frame_table *page_temp;
     struct list *page_list;
     lock_acquire(&frame_lock);
-    h_elem = frame_table_lookup (paddr);
-    if (!h_elem)
+    temp_frame = frame_table_lookup (paddr);
+    if (!temp_frame)
         {
             lock_release(&frame_lock);
             return false;
         }
-    temp_frame = hash_entry (h_elem, struct frame, hash_elem);
-    
     page_list = &temp_frame->page_list;
     while (list_size (page_list)==0)
     {
@@ -167,27 +164,27 @@ delete_frame_from_frame_table(void *paddr, struct thread* owner)
         page_temp = list_entry (l_elem, struct page_for_frame_table, list_elem);
         free(page_temp);
     }
-    hash_delete (&frame_table, h_elem);
+    hash_delete (&frame_table, &temp_frame->hash_elem);
     free (temp_frame);
 
     lock_release(&frame_lock);
     return true;
 }
 
-struct page_for_frame_table *
+struct list_elem *
 find_elem_in_page_list (struct list *page_list, void *page, struct thread* owner)
 {
     struct page_for_frame_table *page_temp;
     struct list_elem *e;
     ASSERT (lock_held_by_current_thread (&frame_lock));
 
-  for (e = list_begin (&page_list); e != list_end (&page_list);
+  for (e = list_begin (page_list); e != list_end (page_list);
       e = list_next (e))
       {
           page_temp = list_entry (e, struct page_for_frame_table, list_elem);
-          if(page_temp->page == page && page_temp->owner == page_temp)
+          if(page_temp->page == page && page_temp->owner == owner) //is it correct?
           {
-              return list_entry (e, struct page_for_frame_table, list_elem);
+              return e;
           }
       }
       return NULL;

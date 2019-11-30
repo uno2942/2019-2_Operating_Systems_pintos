@@ -29,6 +29,7 @@
 #include "userprog/syscall.h"
 #include "userprog/tss.h"
 #include "vm/frame.h"
+#include "vm/swap.h"
 #else
 #include "tests/threads/tests.h"
 #endif
@@ -100,6 +101,7 @@ main (void)
   malloc_init ();
   paging_init ();
   frame_table_init ();
+//  swap_init ();
 
   /* Segmentation. */
 #ifdef USERPROG

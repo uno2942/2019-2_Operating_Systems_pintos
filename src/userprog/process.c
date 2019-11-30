@@ -20,10 +20,14 @@
 #include "threads/thread.h"
 #include "threads/vaddr.h"
 #include "threads/synch.h"
+#include "vm/page.h"
+#include "vm/frame.h"
 
 static thread_func start_process NO_RETURN;
 static bool load (const char *cmdline, void (**eip) (void), void **esp);
 
+void delete_page_from_frame_table_help (struct hash_elem *h_elem, void *aux);
+void arrange_frame_table (struct hash* sp_table, uint32_t *pd);
 /* Starts a new thread running a user program loaded from
    FILENAME.  The new thread may be scheduled (and may even exit)
    before process_execute() returns.  Returns the new process's
@@ -193,6 +197,27 @@ process_wait (tid_t child_tid)
   return ret_val;
 }
 
+void
+delete_page_from_frame_table_help (struct hash_elem *h_elem, void *aux)
+{
+  struct thread *cur = thread_current ();
+  struct spage *spage = hash_entry (h_elem, struct spage, hash_elem);
+  void *paddr = pagedir_get_page (aux, spage->page);
+  if (paddr != NULL)
+  {
+    ASSERT (delete_page_from_frame_table (paddr, spage->page, cur));
+  }
+}
+
+void
+arrange_frame_table (struct hash* sp_table, uint32_t *pd)
+{
+  sp_table->aux = pd;
+  hash_apply (sp_table, delete_page_from_frame_table_help);
+  sp_table->aux = NULL;
+}
+
+
 /* Free the current process's resources. */
 void
 process_exit (void)
@@ -203,6 +228,10 @@ process_exit (void)
   /* Destroy the current process's page directory and switch back
      to the kernel-only page directory. */
   pd = cur->pagedir;
+  
+  arrange_frame_table (&cur->sp_table, pd);
+  clear_supplemental_page_table (&cur->sp_table);
+
   if (pd != NULL) 
     {
       /* Correct ordering here is crucial.  We must set
@@ -379,6 +408,8 @@ load (const char *file_name, void (**eip) (void), void **esp)
   t->pagedir = pagedir_create ();
   if (t->pagedir == NULL) 
     goto done;
+  supplemental_page_table_init (&t->sp_table);
+
   process_activate ();
 
   /* Open executable file. */

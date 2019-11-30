@@ -5,6 +5,7 @@
 #include <list.h>
 #include <stdint.h>
 #include "filesys/file.h"
+#include "vm/page.h"
 
 /* States in a thread's life cycle. */
 enum thread_status
@@ -105,6 +106,8 @@ struct thread
     struct ev* ev;
     struct file* file;
     bool is_user;
+
+    struct hash sp_table;
 #endif
 
     /* Owned by thread.c. */
