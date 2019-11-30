@@ -1,16 +1,29 @@
 #include "userprog/exception.h"
 #include <inttypes.h>
 #include <stdio.h>
+#include <hash.h>
+#include <string.h>
 #include "userprog/gdt.h"
+#include "userprog/pagedir.h"
+#include "filesys/file.h"
 #include "threads/interrupt.h"
+#include "threads/palloc.h"
+#include "threads/malloc.h"
 #include "threads/thread.h"
+#include "threads/vaddr.h"
+#include "threads/synch.h"
+#include "userprog/syscall.h"
 #include "vm/page.h"
+#include "vm/frame.h"
+
 /* Number of page faults processed. */
 static long long page_fault_cnt;
 
 static void kill (struct intr_frame *);
 static void page_fault (struct intr_frame *);
+static bool load_page_in_memory (struct file *file, off_t ofs, uint8_t *upage, uint32_t page_read_bytes, uint32_t page_zero_bytes, bool writable, enum read_from read_from);
 
+static bool install_page (void *upage, void *kpage, bool writable);
 /* Registers handlers for interrupts that can be caused by user
    programs.
 
@@ -139,26 +152,34 @@ page_fault (struct intr_frame *f)
   /* Turn interrupts back on (they were only off so that we could
      be assured of reading CR2 before it changed). */
   intr_enable ();
+  
+  page_fault_cnt++;
+
+  /* Determine cause. */
+  not_present = (f->error_code & PF_P) == 0;
+  write = (f->error_code & PF_W) != 0;
+  user = (f->error_code & PF_U) != 0;
+  
   if(user == true)
       {
       struct hash* sp_table = &thread_current()->sp_table;
       struct hash_elem *h_elem = supplemental_page_table_lookup (sp_table, fault_addr);
       if (h_elem == NULL) //maybe STACK fault
       {
-         ...
+         goto real_fault;
       }
       struct spage* spage = hash_entry (h_elem, struct spage, hash_elem);
       switch (spage->read_from)
       {
          case CODE_P:
-            if (load_segment_in_memory(spage->read_file, spage->where_to_read, pg_round_down (fault_addr),
+            if (load_page_in_memory(spage->read_file, spage->where_to_read, pg_round_down (fault_addr),
                   spage->read_size, PGSIZE-spage->read_size, false, spage->read_from)
                   == false)
                goto real_fault;
             else
                return;
          case MMAP_P: 
-            if (load_segment_in_memory(spage->read_file, spage->where_to_read, pg_round_down (fault_addr),
+            if (load_page_in_memory(spage->read_file, spage->where_to_read, pg_round_down (fault_addr),
                   spage->read_size, PGSIZE-spage->read_size, true, spage->read_from)
                   == false)
                goto real_fault;
@@ -175,14 +196,6 @@ page_fault (struct intr_frame *f)
   
   /* Count page faults. */
 real_fault:
-
-  page_fault_cnt++;
-
-  /* Determine cause. */
-  not_present = (f->error_code & PF_P) == 0;
-  write = (f->error_code & PF_W) != 0;
-  user = (f->error_code & PF_U) != 0;
-
   /* To implement virtual memory, delete the rest of the function
      body, and replace it with code that brings in the page to
      which fault_addr refers. */
@@ -194,3 +207,78 @@ real_fault:
   kill (f);
 }
 
+//For now, I assumed that there is no already existing frame in frame table.
+
+static bool
+load_page_in_memory (struct file *file, off_t ofs, uint8_t *upage,
+                        uint32_t page_read_bytes, uint32_t page_zero_bytes,
+                        bool writable, enum read_from read_from)
+{
+  uint8_t *kpage;
+  struct frame *frame;
+  struct spage *spage;
+  struct hash_elem *h_elem;
+  struct hash *sp_table = &thread_current ()->sp_table;
+  /* Get a page of memory. */
+  palloc_lock_acquire ();
+  kpage = palloc_get_page (PAL_USER);
+  if (kpage == NULL)
+    {
+      palloc_lock_release ();
+      return false;
+    }
+  frame = make_frame (convert_read_from_to_write_to (read_from),
+                         ofs, page_read_bytes, kpage, upage, true);
+  insert_to_frame_table (frame);
+  palloc_lock_release ();
+    
+  h_elem = supplemental_page_table_lookup (sp_table, upage);
+  spage = hash_entry (h_elem, struct spage, hash_elem);
+  
+  ASSERT (spage!=NULL && spage->read_file == file && spage->where_to_read == ofs 
+         && spage->read_size == page_read_bytes && spage->read_from == read_from); 
+      
+  file_seek (file, ofs);
+
+  /* Load this page. */
+  bool b;
+   file_lock_acquire ();
+   b = (file_read (file, kpage, page_read_bytes) != (int) page_read_bytes);
+   file_lock_release ();
+
+   if (b)
+    {
+      palloc_lock_acquire ();
+      delete_frame_from_frame_table (kpage);
+      palloc_free_page (kpage);
+      palloc_lock_release ();
+      return false;
+    }
+  memset (kpage + page_read_bytes, 0, page_zero_bytes);
+
+  /* Add the page to the process's address space. */
+  if (!install_page (upage, kpage, writable)) 
+  {
+    palloc_lock_acquire ();
+    delete_frame_from_frame_table (kpage);
+    palloc_free_page (kpage);
+    palloc_lock_release ();
+    return false;
+  }
+
+  palloc_lock_acquire ();//is it right?
+  frame->pin = false;
+  palloc_lock_release ();
+  return true;
+}
+
+static bool
+install_page (void *upage, void *kpage, bool writable)
+{
+  struct thread *t = thread_current ();
+
+  /* Verify that there's not already a page at that virtual
+     address, then map our page there. */
+  return (pagedir_get_page (t->pagedir, upage) == NULL
+          && pagedir_set_page (t->pagedir, upage, kpage, writable));
+}

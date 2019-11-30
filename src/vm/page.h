@@ -10,7 +10,7 @@ enum read_from
 struct spage
 {
     enum read_from read_from;
-    void *where_to_read;        // If READ_FROM == SWAP, then it indicates slot #.
+    int32_t where_to_read;        // If READ_FROM == SWAP, then it indicates slot #.
     struct file *read_file;
     uint32_t read_size;
     void *page;

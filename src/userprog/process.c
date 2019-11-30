@@ -533,17 +533,6 @@ load (const char *file_name, void (**eip) (void), void **esp)
 
 
 
-
-
-
-
-
-
-
-
-
-
-
 
 /* load() helpers. */
 
@@ -609,43 +598,6 @@ validate_segment (const struct Elf32_Phdr *phdr, struct file *file)
    Return true if successful, false if a memory allocation error
    or disk read error occurs. */
 
-bool
-load_page_in_memory (struct file *file, off_t ofs, uint8_t *upage,
-                        uint32_t page_read_bytes, uint32_t page_zero_bytes,
-                        bool writable, enum read_from read_from) 
-{
-  
-  /* Get a page of memory. */
-  uint8_t *kpage = palloc_get_page (PAL_USER);
-  if (kpage == NULL)
-    return false;
-    
-  struct hash_elem *h_elem = supplemental_page_table_lookup (sp_table, upage);
-  struct spage *spage = hash_entry (h_elem, struct spage, hash_elem);
-  ASSERT(spage!=NULL && spage->read_file == file && spage->where_to_read == ofs 
-         && spage->read_size == page_read_bytes && spage->read_from == read_from); 
-      
-  file_seek (file, ofs);
-
-  /* Load this page. */
-  if (file_read (file, kpage, page_read_bytes) != (int) page_read_bytes)
-    {
-      palloc_free_page (kpage);
-      return false;
-    }
-  memset (kpage + page_read_bytes, 0, page_zero_bytes);
-
-  /* Add the page to the process's address space. */
-  if (!install_page (upage, kpage, writable)) 
-  {
-    palloc_free_page (kpage);
-    return false;
-  }
-  insert_to_frame_table (make_frame (convert_read_from_to_write_to (read_from),
-                         ofs, page_read_bytes, kpage, upage, false)); //is it right?
-  return true;
-}
-
 static bool
 load_segment (struct file *file, off_t ofs, uint8_t *upage,
               uint32_t read_bytes, uint32_t zero_bytes, bool writable) 
@@ -656,7 +608,6 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
   
   struct hash* sp_table = &thread_current()->sp_table;
   struct hash_elem* h_elem;
-  int load_count = 0;
   
   while (read_bytes > 0 || zero_bytes > 0) 
     {
@@ -666,43 +617,21 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
       size_t page_read_bytes = read_bytes < PGSIZE ? read_bytes : PGSIZE;
       size_t page_zero_bytes = PGSIZE - page_read_bytes;
 
-     h_elem = supplemental_page_table_lookup (sp_table, upage);
-     
-     if (h_elem !=NULL)
-     {
-        struct spage *spage = hash_entry (h_elem, struct spage, hash_elem);
-        ASSERT( (spage->read_file == file && spage->where_to_read == ofs 
-                && spage->read_size == read_bytes) );
-        ASSERT (load_count == 0);
-        if (load_segment_in_memory (file, ofs, upage, page_read_bytes
-                                    page_zero_bytes, writable, spage->read_from)
-                                    == false)
-          return false;
-        load_count++;
-     }
-     else
-     {
-        struct spage *spage_temp = (struct spage *)malloc (sizeof (struct spage));
-        if (spage_temp == NULL)
-              return false; 
-        spage_temp->where_to_read = ofs;
-        spage_temp->read_file = file;
-        spage_temp->read_size = page_read_bytes;
-        spage_temp->page = upage;
-        if (writable)
-          spage_temp->read_from = DATA_P;
-        else
-          spage_temp->read_from = CODE_P;
-        insert_to_supplemental_page_table (sp_table, spage_temp);
-        if(load_count == 0)
-        {
-        if (load_segment_in_memory (file, ofs, upage, page_read_bytes
-                                    page_zero_bytes, writable, spage->read_from)
-                                    == false)
-          return false;
-          load_count++;
-        }
-     }
+      h_elem = supplemental_page_table_lookup (sp_table, upage);
+    
+      ASSERT (h_elem == NULL);
+      struct spage *spage_temp = (struct spage *)malloc (sizeof (struct spage));
+      if (spage_temp == NULL)
+            return false; 
+      spage_temp->where_to_read = ofs;
+      spage_temp->read_file = file;
+      spage_temp->read_size = page_read_bytes;
+      spage_temp->page = upage;
+      if (writable)
+        spage_temp->read_from = DATA_P;
+      else
+        spage_temp->read_from = CODE_P;
+      insert_to_supplemental_page_table (sp_table, spage_temp);
       /* Advance. */
       read_bytes -= page_read_bytes;
       zero_bytes -= page_zero_bytes;
@@ -720,34 +649,52 @@ setup_stack (void **esp)
   uint8_t *kpage;
   bool success = false;
   struct hash* sp_table = &thread_current()->sp_table;
-
-  kpage = palloc_get_page (PAL_USER | PAL_ZERO);
+  struct frame *frame;
   
-  if (kpage != NULL) 
+  palloc_lock_acquire ();
+  kpage = palloc_get_page (PAL_USER | PAL_ZERO);
+  if (kpage == NULL)
+  {
+    palloc_lock_release ();
+    return false;
+  }
+  frame = make_frame (SWAP_F, -1, PGSIZE, kpage, PHYS_BASE - PGSIZE, true);
+  insert_to_frame_table (frame); //is it right?
+  palloc_lock_release ();
+
+  success = install_page (((uint8_t *) PHYS_BASE) - PGSIZE, kpage, true);
+  if (success)
+  {
+    struct spage *spage_temp = (struct spage *)malloc (sizeof (struct spage));
+    
+    if (spage_temp == NULL)
     {
-      success = install_page (((uint8_t *) PHYS_BASE) - PGSIZE, kpage, true);
-      if (success)
-      {
-        struct spage *spage_temp = (struct spage *)malloc (sizeof (struct spage));
-        
-        if (spage_temp == NULL)
-        {
-          palloc_free_page (kpage);
-          return false; 
-        }
-        spage_temp->read_from = STACK_P;
-        spage_temp->read_file = NULL;
-        spage_temp->where_to_read = NULL;
-        spage_temp->read_size = -1;
-        spage_temp->page = PHYS_BASE - PGSIZE; //is it right?
-        
-        insert_to_supplemental_page_table (sp_table, spage_temp);
-        insert_to_frame_table (make_frame (SWAP_F, -1, PGSIZE, kpage, PHYS_BASE - PGSIZE, false)); //is it right?
-        
-        *esp = PHYS_BASE;
-      }
-      else
-        palloc_free_page (kpage);
+      palloc_lock_acquire ();
+      delete_frame_from_frame_table (kpage);
+      palloc_free_page (kpage);
+      palloc_lock_release ();
+      return false; 
+    }
+    spage_temp->read_from = SWAP_P;
+    spage_temp->read_file = NULL;
+    spage_temp->where_to_read = -1;
+    spage_temp->read_size = -1;
+    spage_temp->page = PHYS_BASE - PGSIZE; //is it right?
+    
+    insert_to_supplemental_page_table (sp_table, spage_temp);
+    
+    palloc_lock_acquire ();//is it right?
+    frame->pin = false;
+    palloc_lock_release ();
+
+    *esp = PHYS_BASE;
+  }
+  else
+    {
+      palloc_lock_acquire ();
+      delete_frame_from_frame_table (kpage);
+      palloc_free_page (kpage);
+      palloc_lock_release ();
     }
   return success;
 }

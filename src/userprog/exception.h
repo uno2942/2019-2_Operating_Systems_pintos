@@ -8,5 +8,6 @@
 
 void exception_init (void);
 void exception_print_stats (void);
-
+void palloc_lock_acquire (void);
+void palloc_lock_release (void);
 #endif /* userprog/exception.h */

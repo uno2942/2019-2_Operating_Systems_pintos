@@ -36,6 +36,8 @@ struct pool
 /* Two pools: one for kernel data, one for user pages. */
 static struct pool kernel_pool, user_pool;
 
+static struct lock palloc_lock;
+
 static void init_pool (struct pool *, void *base, size_t page_cnt,
                        const char *name);
 static bool page_from_pool (const struct pool *, void *page);
@@ -59,6 +61,7 @@ palloc_init (size_t user_page_limit)
   init_pool (&kernel_pool, free_start, kernel_pages, "kernel pool");
   init_pool (&user_pool, free_start + kernel_pages * PGSIZE,
              user_pages, "user pool");
+  lock_init (&palloc_lock);
 }
 
 /* Obtains and returns a group of PAGE_CNT contiguous free pages.
@@ -184,4 +187,16 @@ page_from_pool (const struct pool *pool, void *page)
   size_t end_page = start_page + bitmap_size (pool->used_map);
 
   return page_no >= start_page && page_no < end_page;
+}
+
+void
+palloc_lock_acquire ()
+{
+   lock_acquire (&palloc_lock);
+}
+
+void
+palloc_lock_release ()
+{
+   lock_release (&palloc_lock);
 }

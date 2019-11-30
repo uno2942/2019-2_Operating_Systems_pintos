@@ -52,8 +52,8 @@ frame_table_lookup (void *paddr)
 
 struct frame*
 make_frame (enum write_to write_to,
-            void *where_to_write,
-            uint32_t *write_size,
+            int32_t where_to_write,
+            uint32_t write_size,
             void *paddr,
             void *page,
             bool pin
@@ -188,4 +188,9 @@ find_elem_in_page_list (struct list *page_list, void *page, struct thread* owner
           }
       }
       return NULL;
+}
+
+enum write_to convert_read_from_to_write_to (enum read_from read_from)
+{
+    return (enum write_to) read_from;
 }
