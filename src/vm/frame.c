@@ -194,3 +194,139 @@ enum write_to convert_read_from_to_write_to (enum read_from read_from)
 {
     return (enum write_to) read_from;
 }
+
+struct frame*
+do_eviction (void *upage, bool writable,
+            enum write_to write_to,
+            int32_t where_to_write,
+            uint32_t write_size
+            )
+{
+    static ; //for clock algorithm
+    static struct hash_iterator iter;
+    struct frame *target_f;
+    lock_acquire(&frame_lock);
+    while (hash_next (&iter))
+    {
+        target_f = hash_entry (hash_cur (&iter), struct frame, hash_elem);
+        if(!check_and_set_accesse_for_frame (target_f))
+            break;
+    }
+    if(hash_cur (&iter) == NULL)
+    {
+        //maybe there are element in front of clock...
+        lock_release(&frame_lock);
+        return NULL;
+    }
+    if(check_and_set_dirty_for_frame (target_f))
+    {
+        //do dirty process.
+    }
+    arrange_target_pte (target_f);
+    
+    #ifndef NDEBUG
+    memset (target_f->paddr, 0xcc, PGSIZE);
+    #endif
+    
+    if (!install_page (upage, target_f->paddr, writable)) 
+    {
+        palloc_free_page (target_f->paddr);
+        lock_release(&frame_lock);
+        return NULL;
+    }
+    
+    struct list *page_list = &target_f->page_list;
+    while (list_size (page_list)==0)
+    {
+        l_elem = list_pop_front (page_list);
+        page_temp = list_entry (l_elem, struct page_for_frame_table, list_elem);
+        free(page_temp);
+    }
+
+    hash_delete (&frame_table, &target_f->hash_elem);
+    free (target_f);
+
+    hash_insert (&frame_table, &(make_frame (write_to, where_to_write, write_size,
+                                           target_f->paddr, upage, false)->hash_elem));
+    lock_release(&frame_lock);
+    return target_f;
+}
+
+bool
+check_and_set_accesse_for_frame (struct frame *f)
+{
+    struct list_elem *e;
+    struct list *page_list = &f->page_list;
+    struct page_for_frame_table *page_for_frame;
+    bool ret = false;
+    ASSERT (lock_held_by_current_thread (&frame_lock));
+
+    //binary search can be applied.
+
+    //find the corresponding file and close it. Set f->eax = 1 and return;
+    for (e = list_begin (page_list); e != list_end (page_list);
+        e = list_next (e))
+    {
+        page_for_frame = list_entry (e, struct page_for_frame_table, list_elem);
+        ret = pagedir_is_accessed (page_for_frame->owner->pagedir, 
+                                   page_for_frame->page) || ret; //check user vaddr
+        pagedir_set_accessed (page_for_frame->owner->pagedir, 
+                              page_for_frame->page, false);
+        ASSERT (pagedir_get_page (page_for_frame->page) == f->paddr);
+        ret = pagedir_is_accessed (page_for_frame->owner->pagedir, 
+                                   pagedir_get_page (page_for_frame->page)) || ret; //check kernel vaddr
+        pagedir_set_accessed (page_for_frame->owner->pagedir, 
+                              pagedir_get_page (page_for_frame->page), false);
+    }
+    return ret;
+}
+
+bool
+check_and_set_dirty_for_frame (struct frame *f)
+{
+    struct list_elem *e;
+    struct list *page_list = &f->page_list;
+    struct page_for_frame_table *page_for_frame;
+    bool ret = false;
+    ASSERT (lock_held_by_current_thread (&frame_lock));
+
+    //binary search can be applied.
+
+    //find the corresponding file and close it. Set f->eax = 1 and return;
+    for (e = list_begin (page_list); e != list_end (page_list);
+        e = list_next (e))
+    {
+        page_for_frame = list_entry (e, struct page_for_frame_table, list_elem);
+        ret = pagedir_is_dirty (page_for_frame->owner->pagedir, 
+                                   page_for_frame->page) || ret; //check user vaddr
+        pagedir_set_dirty (page_for_frame->owner->pagedir, 
+                           page_for_frame->page, false);
+        ASSERT (pagedir_get_page (page_for_frame->page) == f->paddr);
+        ret = pagedir_is_dirty (page_for_frame->owner->pagedir, 
+                                   pagedir_get_page (page_for_frame->page)) || ret; //check kernel vaddr
+        pagedir_set_dirty (page_for_frame->owner->pagedir, 
+                           pagedir_get_page (page_for_frame->page), false);
+    }
+    return ret;
+}
+
+void
+arrange_target_pte (struct frame *f)
+{
+    struct list_elem* e;
+    struct list *page_list = &f->page_list;
+    struct page_for_frame_table *page_for_frame;
+    ASSERT (lock_held_by_current_thread (&frame_lock));
+
+    //binary search can be applied.
+
+    //find the corresponding file and close it. Set f->eax = 1 and return;
+    for (e = list_begin (&page_list); e != list_end (&page_list);
+        e = list_next (e))
+    {
+        page_for_frame = list_entry (e, struct page_for_frame_table, list_elem);
+        pagedir_clear_page (page_for_frame->owner->pagedir, 
+                            page_for_frame->page); //check user vaddr
+    }
+    return ret;
+}

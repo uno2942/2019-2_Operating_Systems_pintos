@@ -225,6 +225,7 @@ read_handle (struct intr_frame *f, int fd, void *buffer, unsigned size)
   if(file!=NULL)
     {
       //is buffer valid
+      //need to check from buffer to buffer+size
     if(!check_user_addr(buffer))
       {
 //        printf("asdf\n");
