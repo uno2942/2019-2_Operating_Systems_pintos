@@ -160,10 +160,12 @@ page_fault (struct intr_frame *f)
   write = (f->error_code & PF_W) != 0;
   user = (f->error_code & PF_U) != 0;
   
+//   printf("entered\n");
   if(user == true)
       {
       struct hash* sp_table = &thread_current()->sp_table;
-      struct hash_elem *h_elem = supplemental_page_table_lookup (sp_table, fault_addr);
+      struct hash_elem *h_elem = supplemental_page_table_lookup (sp_table, pg_round_down (fault_addr));
+//      printf("fault: %p\n",pg_round_down (fault_addr));
       if (h_elem == NULL) //maybe STACK fault
       {
          goto real_fault;
@@ -172,6 +174,7 @@ page_fault (struct intr_frame *f)
       switch (spage->read_from)
       {
          case CODE_P:
+//         printf("entered\n");
             if (load_page_in_memory(spage->read_file, spage->where_to_read, pg_round_down (fault_addr),
                   spage->read_size, PGSIZE-spage->read_size, false, spage->read_from)
                   == false)
@@ -179,19 +182,21 @@ page_fault (struct intr_frame *f)
             else
                return;
          case MMAP_P: 
+         case DATA_P: 
             if (load_page_in_memory(spage->read_file, spage->where_to_read, pg_round_down (fault_addr),
                   spage->read_size, PGSIZE-spage->read_size, true, spage->read_from)
                   == false)
                goto real_fault;
             else
                return;
-         case SWAP_P: break;
-         default: break;
+         case STACK_P:
+//         printf("entered2\n");
+         break;
       }
   }
   else
   {
-
+//     printf("3\n");
   }
   
   /* Count page faults. */
@@ -215,22 +220,15 @@ load_page_in_memory (struct file *file, off_t ofs, uint8_t *upage,
                         bool writable, enum read_from read_from)
 {
   uint8_t *kpage;
-  struct frame *frame;
   struct spage *spage;
   struct hash_elem *h_elem;
   struct hash *sp_table = &thread_current ()->sp_table;
   /* Get a page of memory. */
-  palloc_lock_acquire ();
   kpage = palloc_get_page (PAL_USER);
   if (kpage == NULL)
     {
-      palloc_lock_release ();
       return false;
     }
-  frame = make_frame (convert_read_from_to_write_to (read_from),
-                         ofs, page_read_bytes, kpage, upage, true);
-  insert_to_frame_table (frame);
-  palloc_lock_release ();
     
   h_elem = supplemental_page_table_lookup (sp_table, upage);
   spage = hash_entry (h_elem, struct spage, hash_elem);
@@ -241,17 +239,14 @@ load_page_in_memory (struct file *file, off_t ofs, uint8_t *upage,
   file_seek (file, ofs);
 
   /* Load this page. */
-  bool b;
+   bool b;
    file_lock_acquire ();
    b = (file_read (file, kpage, page_read_bytes) != (int) page_read_bytes);
    file_lock_release ();
 
    if (b)
     {
-      palloc_lock_acquire ();
-      delete_frame_from_frame_table (kpage);
       palloc_free_page (kpage);
-      palloc_lock_release ();
       return false;
     }
   memset (kpage + page_read_bytes, 0, page_zero_bytes);
@@ -259,16 +254,13 @@ load_page_in_memory (struct file *file, off_t ofs, uint8_t *upage,
   /* Add the page to the process's address space. */
   if (!install_page (upage, kpage, writable)) 
   {
-    palloc_lock_acquire ();
-    delete_frame_from_frame_table (kpage);
     palloc_free_page (kpage);
-    palloc_lock_release ();
     return false;
   }
 
-  palloc_lock_acquire ();//is it right?
-  frame->pin = false;
-  palloc_lock_release ();
+  //need lock?
+  insert_to_frame_table (make_frame (convert_read_from_to_write_to (read_from),
+                         ofs, page_read_bytes, kpage, upage, false));
   return true;
 }
 
@@ -277,6 +269,7 @@ install_page (void *upage, void *kpage, bool writable)
 {
   struct thread *t = thread_current ();
 
+//   printf("A\n");
   /* Verify that there's not already a page at that virtual
      address, then map our page there. */
   return (pagedir_get_page (t->pagedir, upage) == NULL

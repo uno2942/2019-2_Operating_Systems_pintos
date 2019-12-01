@@ -82,7 +82,7 @@ insert_to_frame_table (struct frame *frame)
     struct page_for_frame_table *page_temp;
     lock_acquire(&frame_lock);
     temp_frame = frame_table_lookup (frame->paddr);
-    if (!temp_frame)
+    if (temp_frame != NULL)
         {
             page_temp = (struct page_for_frame_table *) malloc (sizeof (struct page_for_frame_table));
             ASSERT (list_size (&frame->page_list) == 1);

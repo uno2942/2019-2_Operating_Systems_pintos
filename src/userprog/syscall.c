@@ -226,7 +226,10 @@ read_handle (struct intr_frame *f, int fd, void *buffer, unsigned size)
     {
       //is buffer valid
     if(!check_user_addr(buffer))
-      exit_handle(NULL, -1);
+      {
+//        printf("asdf\n");
+        exit_handle(NULL, -1);
+      }
     file_lock_acquire();
     f->eax = file_read (file, buffer, size);
     file_lock_release();

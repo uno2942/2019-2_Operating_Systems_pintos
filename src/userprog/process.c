@@ -399,7 +399,6 @@ load (const char *file_name, void (**eip) (void), void **esp)
   char *real_file_name = NULL;
   char *file_name_dump = NULL;
   char *arguments = NULL;
-
   file_name_dump = malloc(strlen(file_name) + 1);
   strlcpy(file_name_dump, file_name, PGSIZE);
   real_file_name = strtok_r (file_name_dump, " ", &arguments);
@@ -527,7 +526,6 @@ load (const char *file_name, void (**eip) (void), void **esp)
     }
   else
     file_close (file);
-
   return success;
 }
 
@@ -627,6 +625,7 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
       spage_temp->read_file = file;
       spage_temp->read_size = page_read_bytes;
       spage_temp->page = upage;
+//      printf("upage: %p\n", upage);
       if (writable)
         spage_temp->read_from = DATA_P;
       else
@@ -649,18 +648,12 @@ setup_stack (void **esp)
   uint8_t *kpage;
   bool success = false;
   struct hash* sp_table = &thread_current()->sp_table;
-  struct frame *frame;
   
-  palloc_lock_acquire ();
   kpage = palloc_get_page (PAL_USER | PAL_ZERO);
   if (kpage == NULL)
   {
-    palloc_lock_release ();
     return false;
   }
-  frame = make_frame (SWAP_F, -1, PGSIZE, kpage, PHYS_BASE - PGSIZE, true);
-  insert_to_frame_table (frame); //is it right?
-  palloc_lock_release ();
 
   success = install_page (((uint8_t *) PHYS_BASE) - PGSIZE, kpage, true);
   if (success)
@@ -669,13 +662,10 @@ setup_stack (void **esp)
     
     if (spage_temp == NULL)
     {
-      palloc_lock_acquire ();
-      delete_frame_from_frame_table (kpage);
       palloc_free_page (kpage);
-      palloc_lock_release ();
       return false; 
     }
-    spage_temp->read_from = SWAP_P;
+    spage_temp->read_from = STACK_P;
     spage_temp->read_file = NULL;
     spage_temp->where_to_read = -1;
     spage_temp->read_size = -1;
@@ -683,19 +673,13 @@ setup_stack (void **esp)
     
     insert_to_supplemental_page_table (sp_table, spage_temp);
     
-    palloc_lock_acquire ();//is it right?
-    frame->pin = false;
-    palloc_lock_release ();
-
+    //is it need lock?
+    struct frame* frame = make_frame (STACK_F, -1, PGSIZE, kpage, PHYS_BASE - PGSIZE, false);
+    insert_to_frame_table (frame);
     *esp = PHYS_BASE;
   }
   else
-    {
-      palloc_lock_acquire ();
-      delete_frame_from_frame_table (kpage);
       palloc_free_page (kpage);
-      palloc_lock_release ();
-    }
   return success;
 }
 

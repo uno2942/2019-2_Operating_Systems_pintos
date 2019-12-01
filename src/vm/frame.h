@@ -7,7 +7,7 @@
 #include "vm/page.h"
 enum write_to 
 {
-    CODE_F, MMAP_F, DATA_F, SWAP_F
+    CODE_F, MMAP_F, DATA_F, STACK_F
 };
 
 struct frame

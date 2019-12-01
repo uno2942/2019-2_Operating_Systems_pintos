@@ -294,6 +294,7 @@ check_user_addr(const void *vaddr)
   /* handle process when invalid */
   if(!is_vaild_uaddr)
   {
+    //  printf("trap\n");
     /* terminate process */
     return false;
   }

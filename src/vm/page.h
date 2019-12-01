@@ -4,7 +4,7 @@
 #include "filesys/file.h"
 enum read_from 
 {
-    CODE_P, MMAP_P, DATA_P, SWAP_P
+    CODE_P, MMAP_P, DATA_P, STACK_P
 };
 
 struct spage
