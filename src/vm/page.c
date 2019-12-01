@@ -14,7 +14,7 @@ unsigned
 spage_hash (const struct hash_elem *p_, void *aux UNUSED)
 {
   const struct spage *p = hash_entry (p_, struct spage, hash_elem);
-  return hash_bytes (&p->page, sizeof p->page);
+  return hash_bytes (&p->upage, sizeof p->upage);
 }
 
 /* Returns true if page a precedes page b. */
@@ -25,7 +25,7 @@ spage_less (const struct hash_elem *a_, const struct hash_elem *b_,
   const struct spage *a = hash_entry (a_, struct spage, hash_elem);
   const struct spage *b = hash_entry (b_, struct spage, hash_elem);
 
-  return a->page < b->page;
+  return a->upage < b->upage;
 }
 
 void
@@ -35,13 +35,13 @@ supplemental_page_table_init (struct hash* sp_table) //Who init lock?
 }
 
 struct hash_elem *
-supplemental_page_table_lookup (struct hash* sp_table, void *page)
+supplemental_page_table_lookup (struct hash* sp_table, void *upage)
 {
   struct spage p;
   struct hash_elem *e;
-  ASSERT (page != NULL);
+  ASSERT (upage != NULL);
 //  ASSERT (lock_held_by_current_thread (&page_lock));
-  p.page = page;
+  p.upage = upage;
   e = hash_find (sp_table, &p.hash_elem);
   return e;
 }
@@ -50,18 +50,18 @@ void
 insert_to_supplemental_page_table (struct hash* sp_table, struct spage* spage)
 {
 //    lock_acquire (&page_lock);
-    ASSERT (supplemental_page_table_lookup (sp_table, spage->page)==NULL);
+    ASSERT (supplemental_page_table_lookup (sp_table, spage->upage)==NULL);
 
     hash_insert (sp_table, &spage->hash_elem);
 //    lock_release (&page_lock);
 }
 
-void delete_from_supplemental_page_table (struct hash* sp_table, void *page)
+void delete_from_supplemental_page_table (struct hash* sp_table, void *upage)
 {
 //    lock_acquire (&page_lock);
     
     struct hash_elem *h_elem;
-    h_elem = supplemental_page_table_lookup (sp_table, page);
+    h_elem = supplemental_page_table_lookup (sp_table, upage);
 
     ASSERT (h_elem!=NULL);
 

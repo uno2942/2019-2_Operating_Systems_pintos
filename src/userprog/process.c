@@ -202,10 +202,10 @@ delete_page_from_frame_table_help (struct hash_elem *h_elem, void *aux)
 {
   struct thread *cur = thread_current ();
   struct spage *spage = hash_entry (h_elem, struct spage, hash_elem);
-  void *paddr = pagedir_get_page (aux, spage->page);
-  if (paddr != NULL)
+  void *kpage = pagedir_get_page (aux, spage->upage);
+  if (kpage != NULL)
   {
-    ASSERT (delete_page_from_frame_table (paddr, spage->page, cur));
+    ASSERT (delete_upage_from_frame_table (kpage, spage->upage, cur));
   }
 }
 
@@ -624,7 +624,7 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
       spage_temp->where_to_read = ofs;
       spage_temp->read_file = file;
       spage_temp->read_size = page_read_bytes;
-      spage_temp->page = upage;
+      spage_temp->upage = upage;
 //      printf("upage: %p\n", upage);
       if (writable)
         spage_temp->read_from = DATA_P;
@@ -668,8 +668,8 @@ setup_stack (void **esp)
     spage_temp->read_from = STACK_P;
     spage_temp->read_file = NULL;
     spage_temp->where_to_read = -1;
-    spage_temp->read_size = -1;
-    spage_temp->page = PHYS_BASE - PGSIZE; //is it right?
+    spage_temp->read_size = 0;
+    spage_temp->upage = PHYS_BASE - PGSIZE;
     
     insert_to_supplemental_page_table (sp_table, spage_temp);
     
