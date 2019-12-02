@@ -679,7 +679,9 @@ setup_stack (void **esp)
     
     insert_to_supplemental_page_table (sp_table, spage_temp);
     *esp = PHYS_BASE;
-  
+
+    printf("** inital stack allocated position : %x\n", (uint32_t)(((uint8_t *) PHYS_BASE) - PGSIZE));
+
     return success;
 }
 

@@ -22,6 +22,7 @@ static long long page_fault_cnt;
 static void kill (struct intr_frame *);
 static void page_fault (struct intr_frame *);
 static bool load_page_in_memory (struct file *file, off_t ofs, uint8_t *upage, uint32_t page_read_bytes, uint32_t page_zero_bytes, bool writable, enum read_from read_from);
+static bool stack_growth(void *fault_addr);
 
 /* Registers handlers for interrupts that can be caused by user
    programs.
@@ -139,6 +140,10 @@ page_fault (struct intr_frame *f)
   bool user;         /* True: access by user, false: access by kernel. */
   void *fault_addr;  /* Fault address. */
 
+  unsigned int stack_grow_limit = 0xc0000000 - 0x800000; /* PHYS_BASE - 8MB */
+  int distance_from_stack_top;
+
+
   /* Obtain faulting address, the virtual address that was
      accessed to cause the fault.  It may point to code or to
      data.  It is not necessarily the address of the instruction
@@ -167,7 +172,35 @@ page_fault (struct intr_frame *f)
 //      printf("fault: %p\n",pg_round_down (fault_addr));
       if (h_elem == NULL) //maybe STACK fault
       {
-         goto real_fault;
+        printf("now address want to access : %x , stack pointer when interrupt occur : %x\n", (unsigned int)fault_addr, (unsigned int)(f->esp));
+        
+        distance_from_stack_top = (int)(f->esp) - (int)fault_addr;
+        if((unsigned int)fault_addr < stack_grow_limit)
+        {
+          //touch heap range : segfault
+          goto real_fault;
+        }
+/*         else if(distance_from_stack_top <= 0)
+        {
+          //normal stack range : which is replaced - need to call back from swap table
+        } */
+        else if(distance_from_stack_top > 32)
+        {
+          //need to handle case : not move esp itself. just access under the esp
+          printf("bad access, not push\n");
+          goto real_fault;
+        }
+        else
+        {
+          //for case only moving exact esp value. range is stack_grow_limit < fault_addr < stack top case, we do stack growth.
+          printf("page fault but we can stack growth\n");
+
+          //success -> return true  
+          if(stack_growth(fault_addr) == false)
+            goto real_fault;
+          else
+            return;
+        }
       }
       struct spage* spage = hash_entry (h_elem, struct spage, hash_elem);
       switch (spage->read_from)
@@ -261,4 +294,50 @@ load_page_in_memory (struct file *file, off_t ofs, uint8_t *upage,
   
   frame->pin = false;//need lock?
   return true;
+}
+
+/* add page for stack until it contain fault_addr
+   same as userprog/process.c/setup_stack pathway  */
+static bool
+stack_growth(void *fault_addr)
+{
+  bool success = false;
+  struct hash* sp_table = &thread_current()->sp_table;
+
+  //for allocate new stack frame, we need to do round_down
+  struct frame* new_stack_frame = make_frame (STACK_F, -1, PGSIZE, NULL, pg_round_down (fault_addr) , false);
+
+  //same as userprog/process.c/setup_stack pathway 
+  if(new_stack_frame == NULL)
+  {
+    return false;
+  }
+
+  success = insert_to_frame_table (PAL_USER | PAL_ZERO, new_stack_frame);
+
+  if (success == false)
+  {
+    free (new_stack_frame);
+    return false;
+  }
+
+  struct spage *spage_temp = (struct spage *)malloc (sizeof (struct spage));
+
+  if (spage_temp == NULL)
+  {
+    delete_upage_from_frame_table (new_stack_frame->kpage, pg_round_down (fault_addr), thread_current());
+    return false;
+  }
+
+  spage_temp->read_from = STACK_P;
+  spage_temp->read_file = NULL;
+  spage_temp->where_to_read = -1;
+  spage_temp->read_size = 0;
+  spage_temp->upage = pg_round_down (fault_addr);
+
+  insert_to_supplemental_page_table (sp_table, spage_temp);
+
+  printf("** additional stack allocated position : %x\n", pg_round_down (fault_addr));
+
+  return success;
 }
