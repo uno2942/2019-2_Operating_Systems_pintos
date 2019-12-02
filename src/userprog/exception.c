@@ -242,22 +242,23 @@ load_page_in_memory (struct file *file, off_t ofs, uint8_t *upage,
     
   h_elem = supplemental_page_table_lookup (sp_table, upage);
   spage = hash_entry (h_elem, struct spage, hash_elem);
-  
   ASSERT (spage!=NULL && spage->read_file == file && spage->where_to_read == ofs 
          && spage->read_size == page_read_bytes && spage->read_from == read_from); 
   
   /* Load this page. */
    file_lock_acquire ();
    file_seek (file, ofs);
-   success = (file_read (file, kpage, page_read_bytes) != (int) page_read_bytes);
+   success = (file_read (file, kpage, page_read_bytes) == (int) page_read_bytes);
    file_lock_release ();
-
    if (success == false)
     {
       delete_upage_from_frame_table (kpage, upage, thread_current ());
       return false;
     }
   memset (kpage + page_read_bytes, 0, page_zero_bytes);
-
+  pagedir_set_accessed (thread_current ()->pagedir, kpage, false);
+  pagedir_set_dirty (thread_current ()->pagedir, kpage, false);
+  
+  frame->pin = false;//need lock?
   return true;
 }

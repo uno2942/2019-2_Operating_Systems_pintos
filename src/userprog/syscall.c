@@ -469,7 +469,7 @@ clear_mmap_list_for_exit ()
 {
   struct thread *cur = thread_current ();
   struct mmap_elem *mmap_temp;
-  while (list_size (&cur->mmap_list) == 0)
+  while (list_size (&cur->mmap_list) > 0)
   {
     mmap_temp = list_entry (list_begin (&cur->mmap_list), struct mmap_elem, elem);
     munmap_handle (NULL, mmap_temp->id);

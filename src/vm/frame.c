@@ -165,7 +165,7 @@ insert_to_frame_table (enum palloc_flags flags, struct frame *frame)
             case CODE_F: writable = false; break;
             case MMAP_F:
             case DATA_F:
-            case STACK_F: writable = true;
+            case STACK_F: writable = true; break;
             default: ASSERT (0);
         }
         /* Add the page to the process's address space. */
@@ -188,7 +188,6 @@ insert_to_frame_table (enum palloc_flags flags, struct frame *frame)
     
     hash_insert (&frame_table, &frame->hash_elem);
 
-    
     lock_release(&frame_lock);
     return success;
 }
@@ -213,7 +212,7 @@ clear_frame (struct frame *frame)
 
 
 
-            
+
             break;
             case DATA_F:
             case STACK_F: //write_to_swap; break;
@@ -458,7 +457,6 @@ check_and_set_dirty_for_frame (struct frame *f)
                                    upage_for_frame->upage) || ret; //check user vaddr
         pagedir_set_dirty (upage_for_frame->owner->pagedir, 
                            upage_for_frame->upage, false);
-        
         void *kpage = pagedir_get_page (upage_for_frame->owner->pagedir, upage_for_frame->upage);
         
         ASSERT (kpage == f->kpage);
