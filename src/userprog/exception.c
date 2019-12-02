@@ -229,6 +229,8 @@ load_page_in_memory (struct file *file, off_t ofs, uint8_t *upage,
   /* Get a page of memory. */
   bool success;
   
+  //I need to consider the case: while doing eviction and putting on swap table
+  //the victim page tries to load by this function.
   struct frame *frame = make_frame (convert_read_from_to_write_to (read_from),
                           file, ofs, page_read_bytes, NULL, upage, true);
   if(frame == NULL)

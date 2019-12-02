@@ -204,6 +204,8 @@ clear_frame (struct frame *frame)
     struct upage_for_frame_table *upage_temp;
     struct list_elem *l_elem;
     
+    //first, disconnect the connection to previous process.
+    clear_target_pte (frame);
     //if it is dirty, do something.
     if (check_and_set_dirty_for_frame (frame))
     {
@@ -217,11 +219,10 @@ clear_frame (struct frame *frame)
                 file_lock_release ();
                 break;
             case DATA_F:
-            case STACK_F: //write_to_swap; break;
+            case STACK_F: put_to_swap (frame); break;
             break;
         }
     }
-    clear_target_pte (frame);
 
     while (list_size (upage_list) == 0)
     {
