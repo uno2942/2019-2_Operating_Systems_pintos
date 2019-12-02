@@ -229,7 +229,7 @@ process_exit (void)
   /* Destroy the current process's page directory and switch back
      to the kernel-only page directory. */
   pd = cur->pagedir;
-  
+  clear_mmap_list_for_exit ();
   arrange_frame_table (&cur->sp_table, pd);
   clear_supplemental_page_table (&cur->sp_table);
 

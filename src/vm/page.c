@@ -5,7 +5,6 @@
 #include "threads/malloc.h"
 #include "threads/vaddr.h"
 #include "threads/synch.h"
-#include "userprog/pagedir.h"
 
 // static struct lock page_lock;
 
@@ -86,6 +85,7 @@ void clear_supplemental_page_table (struct hash* sp_table)
   hash_clear (sp_table, free_spage_element);
 }
 
+/*
 void 
 clear_supplemental_page_table_mmap (struct hash *sp_table, uint8_t *from, uint8_t *to)
 {
@@ -95,9 +95,8 @@ clear_supplemental_page_table_mmap (struct hash *sp_table, uint8_t *from, uint8_
   {
     struct spage *spage = hash_entry (supplemental_page_table_lookup (sp_table, from),
                                struct spage, hash_elem);
-    pagedir_clear_page (cur->pagedir, spage->upage);
     hash_delete (sp_table, &spage->hash_elem);
     free (spage);
     from = from + PGSIZE;
   }
-}
+}*/

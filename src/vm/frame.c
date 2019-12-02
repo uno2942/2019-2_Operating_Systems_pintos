@@ -207,6 +207,13 @@ clear_frame (struct frame *frame)
         {
             case CODE_F: ASSERT (0); break;
             case MMAP_F: //file_write; break;
+
+
+
+
+
+
+            
             break;
             case DATA_F:
             case STACK_F: //write_to_swap; break;

@@ -7,4 +7,5 @@ void syscall_init (void);
 void close_files(tid_t owner);
 void file_lock_acquire(void);
 void file_lock_release(void);
+void clear_mmap_list_for_exit(void);
 #endif /* userprog/syscall.h */

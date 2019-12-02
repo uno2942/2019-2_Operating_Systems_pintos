@@ -16,6 +16,8 @@
 #include "devices/shutdown.h"
 #include "userprog/pagedir.h"
 #include "userprog/process.h"
+#include "vm/page.h"
+#include "vm/frame.h"
 
 static int fd_count;
 
@@ -338,13 +340,29 @@ close_handle (struct intr_frame *f, int fd)
 }
 
 
-static bool load_mmap (struct file *file, off_t ofs, uint8_t *upage, uint32_t read_bytes, uint32_t zero_bytes, bool writable);
+static bool load_mmap (struct file *file, off_t ofs, uint8_t *upage, uint32_t read_bytes, uint32_t zero_bytes);
 struct mmap_elem *find_mmap_elem (int id);
 
+struct mmap_elem *
+find_mmap_elem (int id)
+{
+  struct list_elem* e;
+  struct list *mmap_list = &thread_current ()->mmap_list;
+  struct mmap_elem *mmap_elem;
+  //binary search can be applied.
+  for (e = list_begin (mmap_list); e != list_end (mmap_list);
+       e = list_next (e))
+    {
+      mmap_elem = list_entry (e, struct mmap_elem, elem);
+      if(mmap_elem->id == id)
+        return mmap_elem;
+    }
+  return NULL;
+}
 
 void
 mmap_handle (struct intr_frame *f, int fd, void *addr)
-{/*
+{
   struct file* file = find_file(fd);
   struct file* mmap_file;
   off_t length;
@@ -356,24 +374,25 @@ mmap_handle (struct intr_frame *f, int fd, void *addr)
 
   //check address and properties.
 
-  if(load_mmap (mmap_file, 0, addr, length, ROUND_UP (length, PGSIZE)-length, true))
+  if(load_mmap (mmap_file, 0, addr, length, ROUND_UP (length, PGSIZE)-length))
   {
     struct mmap_elem *mmap_elem = malloc (sizeof (struct mmap_elem));
     mmap_elem->file = mmap_file;
     mmap_elem->addr = addr;
     mmap_elem->length = length;
     mmap_elem->id = ++(thread_current()->mmap_t_allocator);
-    list_push_back (&thread_current ()->mmap_list, &mmap_elem->list_elem);
+    list_push_back (&thread_current ()->mmap_list, &mmap_elem->elem);
     f->eax = mmap_elem->id;
   }
-  f->eax = -1;
-  */
+  else
+    f->eax = -1;
+  
 }
 
 //Assume upage and other properties are legal.
 static bool
 load_mmap (struct file *file, off_t ofs, uint8_t *upage,
-              uint32_t read_bytes, uint32_t zero_bytes, bool writable) 
+              uint32_t read_bytes, uint32_t zero_bytes) 
 {
   ASSERT ((read_bytes + zero_bytes) % PGSIZE == 0);
   ASSERT (pg_ofs (upage) == 0);
@@ -416,32 +435,45 @@ load_mmap (struct file *file, off_t ofs, uint8_t *upage,
   return true;
 }
 
-struct mmap_elem *
-find_mmap_elem (int id)
-{
-  struct list_elem* e;
-  struct list *mmap_list = &thread_current ()->mmap_list;
-  struct mmap_elem *mmap_elem;
-  //binary search can be applied.
-  for (e = list_begin (mmap_list); e != list_end (mmap_list);
-       e = list_next (e))
-    {
-      mmap_elem = list_entry (e, struct mmap_elem, elem);
-      if(mmap_elem->id == id)
-        return mmap_elem;
-    }
-  return NULL;
-}
-
 
 void
 munmap_handle (struct intr_frame *f UNUSED, int id)
-{/*
+{
   struct mmap_elem *mmap_elem = find_mmap_elem (id);
   struct thread *cur = thread_current ();
-  clear_supplemental_page_table_mmap (&cur->sp_table, mmap_elem->addr, 
-                                      (uint8_t *)mmap_elem->addr + mmap_elem->length);
-                                      */
+  struct hash* sp_table = &cur->sp_table;
+  uint8_t *start_addr = mmap_elem->addr;
+  uint8_t *now_addr;
+  void *kaddr;
+  int i=0;
+  while (i < mmap_elem->length)
+  {
+    now_addr = start_addr + i;
+    kaddr = pagedir_get_page (cur->pagedir, now_addr);
+    if (kaddr != NULL)
+      delete_upage_from_frame_table (kaddr, now_addr, cur);
+    delete_from_supplemental_page_table (sp_table, now_addr);
+    i += PGSIZE;
+  }
+  lock_acquire (&file_lock);
+  file_close (mmap_elem->file);
+  lock_release (&file_lock);
+  list_remove (&mmap_elem->elem);
+  free (mmap_elem);
+ // clear_supplemental_page_table_mmap (&cur->sp_table, mmap_elem->addr, 
+ //                                     (uint8_t *)mmap_elem->addr + mmap_elem->length);                            
+}
+
+void
+clear_mmap_list_for_exit ()
+{
+  struct thread *cur = thread_current ();
+  struct mmap_elem *mmap_temp;
+  while (list_size (&cur->mmap_list) == 0)
+  {
+    mmap_temp = list_entry (list_begin (&cur->mmap_list), struct mmap_elem, elem);
+    munmap_handle (NULL, mmap_temp->id);
+  }
 }
 
 
