@@ -3,7 +3,9 @@
 #include <list.h>
 #include "threads/thread.h"
 #include "threads/malloc.h"
+#include "threads/vaddr.h"
 #include "threads/synch.h"
+#include "userprog/pagedir.h"
 
 // static struct lock page_lock;
 
@@ -78,7 +80,24 @@ void free_spage_element (struct hash_elem *h_elem, void *aux UNUSED)
     free(spage_temp);
 }
 
+//clear spage_table before exit the process.
 void clear_supplemental_page_table (struct hash* sp_table)
 {
   hash_clear (sp_table, free_spage_element);
+}
+
+void 
+clear_supplemental_page_table_mmap (struct hash *sp_table, uint8_t *from, uint8_t *to)
+{
+  ASSERT ( pg_ofs (from) == 0 && pg_ofs (to - from) % PGSIZE == 0 && to >= from)
+  struct thread *cur = thread_current ();
+  while (from <= to)
+  {
+    struct spage *spage = hash_entry (supplemental_page_table_lookup (sp_table, from),
+                               struct spage, hash_elem);
+    pagedir_clear_page (cur->pagedir, spage->upage);
+    hash_delete (sp_table, &spage->hash_elem);
+    free (spage);
+    from = from + PGSIZE;
+  }
 }

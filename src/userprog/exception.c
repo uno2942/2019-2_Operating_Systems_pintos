@@ -23,7 +23,6 @@ static void kill (struct intr_frame *);
 static void page_fault (struct intr_frame *);
 static bool load_page_in_memory (struct file *file, off_t ofs, uint8_t *upage, uint32_t page_read_bytes, uint32_t page_zero_bytes, bool writable, enum read_from read_from);
 
-static bool install_page (void *upage, void *kpage, bool writable);
 /* Registers handlers for interrupts that can be caused by user
    programs.
 
@@ -219,59 +218,46 @@ load_page_in_memory (struct file *file, off_t ofs, uint8_t *upage,
                         uint32_t page_read_bytes, uint32_t page_zero_bytes,
                         bool writable, enum read_from read_from)
 {
+  ASSERT ((page_read_bytes + page_zero_bytes) % PGSIZE == 0);
+  ASSERT (pg_ofs (upage) == 0);
+  ASSERT (ofs % PGSIZE == 0);
+
   uint8_t *kpage;
   struct spage *spage;
   struct hash_elem *h_elem;
   struct hash *sp_table = &thread_current ()->sp_table;
   /* Get a page of memory. */
-  kpage = palloc_get_page (PAL_USER);
-  if (kpage == NULL)
-    {
-      return false;
-    }
+  bool success;
+  
+  struct frame *frame = make_frame (convert_read_from_to_write_to (read_from),
+                          ofs, page_read_bytes, NULL, upage, true);
+  if(frame == NULL)
+    PANIC ("malloc fail");
+  
+  success = insert_to_frame_table (PAL_USER, frame);
+  if(success == false)
+    PANIC ("palloc fail");
+
+  kpage = frame->kpage;
     
   h_elem = supplemental_page_table_lookup (sp_table, upage);
   spage = hash_entry (h_elem, struct spage, hash_elem);
   
   ASSERT (spage!=NULL && spage->read_file == file && spage->where_to_read == ofs 
          && spage->read_size == page_read_bytes && spage->read_from == read_from); 
-      
-  file_seek (file, ofs);
-
+  
   /* Load this page. */
-   bool b;
    file_lock_acquire ();
-   b = (file_read (file, kpage, page_read_bytes) != (int) page_read_bytes);
+   file_seek (file, ofs);
+   success = (file_read (file, kpage, page_read_bytes) != (int) page_read_bytes);
    file_lock_release ();
 
-   if (b)
+   if (success == false)
     {
-      palloc_free_page (kpage);
+      delete_upage_from_frame_table (kpage, upage, thread_current ());
       return false;
     }
   memset (kpage + page_read_bytes, 0, page_zero_bytes);
 
-  /* Add the page to the process's address space. */
-  if (!install_page (upage, kpage, writable)) 
-  {
-    palloc_free_page (kpage);
-    return false;
-  }
-
-  //need lock?
-  insert_to_frame_table (make_frame (convert_read_from_to_write_to (read_from),
-                         ofs, page_read_bytes, kpage, upage, false));
   return true;
-}
-
-static bool
-install_page (void *upage, void *kpage, bool writable)
-{
-  struct thread *t = thread_current ();
-
-//   printf("A\n");
-  /* Verify that there's not already a page at that virtual
-     address, then map our page there. */
-  return (pagedir_get_page (t->pagedir, upage) == NULL
-          && pagedir_set_page (t->pagedir, upage, kpage, writable));
 }

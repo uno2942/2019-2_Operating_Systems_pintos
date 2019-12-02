@@ -110,7 +110,6 @@ thread_init (void)
   list_init (&all_list);
   list_init(&exit_value_list);
 
-
   /* Set up a thread structure for the running thread. */
   initial_thread = running_thread ();
   init_thread (initial_thread, "main", PRI_DEFAULT);
@@ -239,6 +238,8 @@ thread_create (const char *name, int priority,
   sf->ebp = 0;
 
   init_ev(t);
+  t->mmap_t_allocator = 0;
+  list_init (&t->mmap_list);
   /* Add to run queue. */
   thread_unblock (t);
 

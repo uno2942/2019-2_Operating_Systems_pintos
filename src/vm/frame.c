@@ -16,10 +16,20 @@ bool frame_less (const struct hash_elem *a_, const struct hash_elem *b_, void *a
 
 bool check_and_set_accesse_for_frame (struct frame *f);
 bool check_and_set_dirty_for_frame (struct frame *f);
-void arrange_target_pte (struct frame *f);
-struct frame *do_eviction (void *upage, bool writable, enum write_to write_to, int32_t where_to_write, uint32_t write_size);
+void clear_target_pte (struct frame *f);
 
-static bool install_page (void *upage, void *kpage, bool writable);
+static bool install_page (struct thread *t, void *upage, void *kpage, bool writable);
+static struct frame *frame_table_lookup (void *kpage);
+static struct list_elem *find_elem_in_upage_list (struct list *upage_list, void *upage, struct thread* owner);
+static struct frame *do_eviction (void *upage, bool writable, enum write_to write_to, int32_t where_to_write, uint32_t write_size);
+static void clear_frame (struct frame *frame);
+static void free_frame (struct frame *frame);
+static struct frame* find_victim (void);
+enum write_to convert_read_from_to_write_to (enum read_from read_from)
+{
+    return (enum write_to) read_from;
+}
+
 unsigned
 frame_hash (const struct hash_elem *p_, void *aux UNUSED)
 {
@@ -27,7 +37,6 @@ frame_hash (const struct hash_elem *p_, void *aux UNUSED)
   return hash_bytes (&p->kpage, sizeof p->kpage);
 }
 
-/* Returns true if page a precedes page b. */
 bool
 frame_less (const struct hash_elem *a_, const struct hash_elem *b_,
            void *aux UNUSED)
@@ -38,6 +47,25 @@ frame_less (const struct hash_elem *a_, const struct hash_elem *b_,
   return a->kpage < b->kpage;
 }
 
+static struct list_elem *
+find_elem_in_upage_list (struct list *upage_list, void *upage, struct thread* owner)
+{
+    struct upage_for_frame_table *upage_temp;
+    struct list_elem *e;
+    ASSERT (lock_held_by_current_thread (&frame_lock));
+
+  for (e = list_begin (upage_list); e != list_end (upage_list);
+      e = list_next (e))
+      {
+          upage_temp = list_entry (e, struct upage_for_frame_table, list_elem);
+          if(upage_temp->upage == upage && upage_temp->owner == owner) //is it correct?
+          {
+              return e;
+          }
+      }
+      return NULL;
+}
+
 void
 frame_table_init (void)
 {
@@ -45,7 +73,7 @@ frame_table_init (void)
     lock_init(&frame_lock);
 }
 
-struct frame *
+static struct frame *
 frame_table_lookup (void *kpage)
 {
   struct frame f;
@@ -70,6 +98,9 @@ make_frame (enum write_to write_to,
 {
     struct frame *temp_frame = (struct frame *) malloc (sizeof (struct frame) );
     
+    if (temp_frame == NULL)
+        return NULL;
+    
     temp_frame->write_to = write_to;
     temp_frame->where_to_write = where_to_write;
     temp_frame->write_size = write_size;
@@ -78,20 +109,36 @@ make_frame (enum write_to write_to,
     
     list_init (&temp_frame->upage_list);
     struct upage_for_frame_table *upage_temp = (struct upage_for_frame_table *) malloc (sizeof (struct upage_for_frame_table));
+    
+    if(upage_temp == NULL)
+        return NULL;
+
     upage_temp->upage = upage;
     upage_temp->owner = thread_current ();
     list_push_back (&temp_frame->upage_list, &upage_temp->list_elem);
 
     return temp_frame;
 }
-void
-insert_to_frame_table (struct frame *frame)
+
+bool
+insert_to_frame_table (enum palloc_flags flags, struct frame *frame)
 {
-    struct frame *temp_frame;
     struct upage_for_frame_table *upage_temp;
+    bool success = true;
+    struct list_elem* e;
+    bool writable;
     lock_acquire(&frame_lock);
-    temp_frame = frame_table_lookup (frame->kpage);
-    if (temp_frame != NULL)
+
+    frame->kpage = palloc_get_page (flags);
+    if (frame->kpage == NULL)
+    {
+        //do_eviction
+    }
+    else
+        ASSERT (frame_table_lookup (frame->kpage) == NULL);
+    //temp_frame = frame_table_lookup (frame->kpage);
+    /*
+    if (temp_frame != NULL) // maybe for sharing
         {
             upage_temp = (struct upage_for_frame_table *) malloc (sizeof (struct upage_for_frame_table));
             ASSERT (list_size (&frame->upage_list) == 1);
@@ -103,27 +150,102 @@ insert_to_frame_table (struct frame *frame)
             free (frame);
         }
     else
+    {*/
+    
+//    }
+    ASSERT (list_size (&frame->upage_list) > 0);
+    
+
+    for (e = list_begin (&frame->upage_list); e != list_end (&frame->upage_list);
+         e = list_next (e))
     {
-        hash_insert (&frame_table, &frame->hash_elem);
+        upage_temp = list_entry (e, struct upage_for_frame_table, list_elem);
+        switch (frame->write_to)
+        {
+            case CODE_F: writable = false; break;
+            case MMAP_F:
+            case DATA_F:
+            case STACK_F: writable = true;
+            default: ASSERT (0);
+        }
+        /* Add the page to the process's address space. */
+        success = success && install_page (upage_temp->owner, upage_temp->upage, frame->kpage, writable);
+        if (success == false)
+        {
+            palloc_free_page (frame->kpage);
+            struct list_elem *e2;
+            e = list_next (e);
+            for (e2 = list_begin (&frame->upage_list); e2 != e;
+                 e2 = list_next (e2))
+            {
+                upage_temp = list_entry (e2, struct upage_for_frame_table, list_elem);
+                pagedir_clear_page (upage_temp->owner->pagedir, upage_temp->upage);
+            }
+            lock_release(&frame_lock);
+            return success;
+        }
     }
     
+    hash_insert (&frame_table, &frame->hash_elem);
+
+    
     lock_release(&frame_lock);
-    return;
+    return success;
 }
 
-
-bool
-delete_upage_from_frame_table(void *kpage, void *upage, struct thread* owner)
-{
+static void
+clear_frame (struct frame *frame)
+{   
+    ASSERT (lock_held_by_current_thread (&frame_lock));
+    
+    struct list *upage_list = &frame->upage_list;
+    struct upage_for_frame_table *upage_temp;
     struct list_elem *l_elem;
+    if (check_and_set_dirty_for_frame (frame))
+    {
+        switch (frame->write_to)
+        {
+            case CODE_F: ASSERT (0); break;
+            case MMAP_F: //file_write; break;
+            break;
+            case DATA_F:
+            case STACK_F: //write_to_swap; break;
+            break;
+        }
+    }
+    clear_target_pte (frame);
 
+    while (list_size (upage_list) == 0)
+    {
+        l_elem = list_pop_front (upage_list);
+        upage_temp = list_entry (l_elem, struct upage_for_frame_table, list_elem);
+        free(upage_temp);
+    }
+}
+
+static void
+free_frame (struct frame *frame)
+{   
+    ASSERT (lock_held_by_current_thread (&frame_lock));
+    
+    clear_frame (frame);
+    hash_delete(&frame_table, &frame->hash_elem);
+    palloc_free_page (frame->kpage);
+    free(frame);
+}
+
+//maybe not deleted if it is evicted.
+bool
+delete_upage_from_frame_table (void *kpage, void *upage, struct thread* owner)
+{
     struct frame *temp_frame;
     struct upage_for_frame_table *upage_temp;
     struct list *upage_list;
-
+    struct list_elem *l_elem;
     lock_acquire(&frame_lock);
+
     temp_frame = frame_table_lookup (kpage);
-    if (!temp_frame)
+    if (temp_frame == NULL)
         {
             lock_release(&frame_lock);
             return false;
@@ -133,11 +255,17 @@ delete_upage_from_frame_table(void *kpage, void *upage, struct thread* owner)
 
     if (list_size (upage_list) == 1)
     {
-        hash_delete(&frame_table, &temp_frame->hash_elem);
-        l_elem = list_pop_front (upage_list);
-        upage_temp = list_entry (l_elem, struct upage_for_frame_table, list_elem);
-        free(upage_temp);
-        free(temp_frame);
+        upage_temp = list_entry (list_begin (upage_list), struct upage_for_frame_table,
+                                 list_elem);
+        if (upage_temp->upage == upage && upage_temp->owner == owner)
+        {
+            free_frame (temp_frame);
+        }
+        else
+        {
+            lock_release(&frame_lock);
+            return false;
+        }
     }
     else
     {
@@ -146,6 +274,7 @@ delete_upage_from_frame_table(void *kpage, void *upage, struct thread* owner)
             return false;
         list_remove (l_elem);
         upage_temp = list_entry (l_elem, struct upage_for_frame_table, list_elem);
+        pagedir_clear_page (upage_temp->owner->pagedir, upage_temp->upage);
         free(upage_temp);
     }
     lock_release(&frame_lock);
@@ -155,67 +284,53 @@ delete_upage_from_frame_table(void *kpage, void *upage, struct thread* owner)
 bool
 delete_frame_from_frame_table (void *kpage)
 {
-    struct list_elem *l_elem;
     struct frame *temp_frame;
-    struct upage_for_frame_table *upage_temp;
-    struct list *upage_list;
     lock_acquire(&frame_lock);
+    
     temp_frame = frame_table_lookup (kpage);
+    
     if (!temp_frame)
-        {
-            lock_release(&frame_lock);
-            return false;
-        }
-    upage_list = &temp_frame->upage_list;
-    while (list_size (upage_list)==0)
     {
-        l_elem = list_pop_front (upage_list);
-        upage_temp = list_entry (l_elem, struct upage_for_frame_table, list_elem);
-        free(upage_temp);
+        lock_release(&frame_lock);
+        return false;
     }
-    hash_delete (&frame_table, &temp_frame->hash_elem);
-    free (temp_frame);
+    free_frame (temp_frame);
 
     lock_release(&frame_lock);
     return true;
 }
 
-struct list_elem *
-find_elem_in_upage_list (struct list *upage_list, void *upage, struct thread* owner)
-{
-    struct upage_for_frame_table *upage_temp;
-    struct list_elem *e;
-    ASSERT (lock_held_by_current_thread (&frame_lock));
 
-  for (e = list_begin (upage_list); e != list_end (upage_list);
-      e = list_next (e))
-      {
-          upage_temp = list_entry (e, struct upage_for_frame_table, list_elem);
-          if(upage_temp->upage == upage && upage_temp->owner == owner) //is it correct?
-          {
-              return e;
-          }
-      }
-      return NULL;
-}
 
-enum write_to convert_read_from_to_write_to (enum read_from read_from)
-{
-    return (enum write_to) read_from;
-}
 
-struct frame*
-do_eviction (void *upage, bool writable,
-            enum write_to write_to,
-            int32_t where_to_write,
-            uint32_t write_size
-            )
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+static struct frame*
+find_victim ()
 {
 //    static ; //for clock algorithm
     static struct hash_iterator iter;
     struct frame *target_f = NULL;
-    void *kpage;
-    lock_acquire(&frame_lock);
+    ASSERT (lock_held_by_current_thread (&frame_lock));
+
     while (hash_next (&iter))
     {
         target_f = hash_entry (hash_cur (&iter), struct frame, hash_elem);
@@ -225,44 +340,59 @@ do_eviction (void *upage, bool writable,
     if(hash_cur (&iter) == NULL)
     {
         //maybe there are element in front of clock...
-        lock_release(&frame_lock);
         return NULL;
     }
     if(target_f == NULL)
     {
+        return NULL;
+    }
+    return target_f;
+}
+
+
+
+static struct frame*
+do_eviction (void *upage, bool writable,
+            enum write_to write_to,
+            int32_t where_to_write,
+            uint32_t write_size
+            )
+{
+    struct frame *target_f = NULL;
+    void *kpage;
+    lock_acquire(&frame_lock);
+
+    target_f = find_victim ();
+    
+    if (target_f == NULL) 
+    {
         lock_release(&frame_lock);
         return NULL;
     }
-    if(check_and_set_dirty_for_frame (target_f))
-    {
-        //do dirty process.
-    }
-    arrange_target_pte (target_f);
+
+    clear_frame (target_f);
     
     kpage = target_f->kpage;
+    hash_delete(&frame_table, &target_f->hash_elem);
+    free (target_f);
+
     #ifndef NDEBUG
     memset (kpage, 0xcc, PGSIZE);
     #endif
 
-    if (!install_page (upage, kpage, writable)) 
+    if (!install_page (thread_current(), upage, kpage, writable)) 
     {
         palloc_free_page (kpage);
         lock_release(&frame_lock);
         return NULL;
     }
     
-    struct list *upage_list = &target_f->upage_list;
-    while (list_size (upage_list)==0)
-    {
-        struct list_elem *l_elem = list_pop_front (upage_list);
-        struct upage_for_frame_table *upage_temp = list_entry (l_elem, struct upage_for_frame_table, list_elem);
-        free(upage_temp);
-    }
-
-    hash_delete (&frame_table, &target_f->hash_elem);
-    free (target_f);
     target_f = make_frame (write_to, where_to_write, write_size,
                            kpage, upage, false);
+    if(target_f == NULL)
+    {
+        PANIC ("malloc fail in eviction");
+    }
     hash_insert (&frame_table, &target_f->hash_elem);
 
     lock_release(&frame_lock);
@@ -333,7 +463,7 @@ check_and_set_dirty_for_frame (struct frame *f)
 }
 
 void
-arrange_target_pte (struct frame *f)
+clear_target_pte (struct frame *f)
 {
     struct list_elem* e;
     struct list *upage_list = &f->upage_list;
@@ -352,12 +482,18 @@ arrange_target_pte (struct frame *f)
     }
 }
 
-
+/* Adds a mapping from user virtual address UPAGE to kernel
+   virtual address KPAGE to the page table.
+   If WRITABLE is true, the user process may modify the page;
+   otherwise, it is read-only.
+   UPAGE must not already be mapped.
+   KPAGE should probably be a page obtained from the user pool
+   with palloc_get_page().
+   Returns true on success, false if UPAGE is already mapped or
+   if memory allocation fails. */
 static bool
-install_page (void *upage, void *kpage, bool writable)
+install_page (struct thread *t, void *upage, void *kpage, bool writable)
 {
-  struct thread *t = thread_current ();
-
 //   printf("A\n");
   /* Verify that there's not already a page at that virtual
      address, then map our page there. */

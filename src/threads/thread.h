@@ -106,8 +106,9 @@ struct thread
     struct ev* ev;
     struct file* file;
     bool is_user;
-
     struct hash sp_table;
+    int mmap_t_allocator;
+    struct list mmap_list;
 #endif
 
     /* Owned by thread.c. */

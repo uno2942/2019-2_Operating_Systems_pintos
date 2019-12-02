@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <syscall-nr.h>
 #include <console.h>
+#include <round.h>
 #include "threads/interrupt.h"
 #include "threads/thread.h"
 #include "threads/malloc.h"
@@ -31,6 +32,15 @@ struct file_descriptor{
     struct list_elem elem;    //for list
 };
 
+struct mmap_elem{
+  struct file* file;
+  void *addr;
+  int length;
+  int id;
+  struct list_elem elem;
+};
+
+struct mmap_elem *find_mmap_elem (int id);
 struct file* find_file(int fd);
 
 void syscall_init (void);
@@ -47,6 +57,8 @@ void write_handle (struct intr_frame *f, int fd, const void *buffer, unsigned si
 void seek_handle (struct intr_frame *f, int fd, unsigned position);
 void tell_handle (struct intr_frame *f, int fd);
 void close_handle (struct intr_frame *f, int fd);
+void mmap_handle (struct intr_frame *f, int fd, void *addr);
+void munmap_handle (struct intr_frame *f UNUSED, int id);
 
 static void syscall_handler (struct intr_frame *);
 
@@ -326,6 +338,111 @@ close_handle (struct intr_frame *f, int fd)
 }
 
 
+static bool load_mmap (struct file *file, off_t ofs, uint8_t *upage, uint32_t read_bytes, uint32_t zero_bytes, bool writable);
+struct mmap_elem *find_mmap_elem (int id);
+
+
+void
+mmap_handle (struct intr_frame *f, int fd, void *addr)
+{/*
+  struct file* file = find_file(fd);
+  struct file* mmap_file;
+  off_t length;
+  lock_acquire(&file_lock);
+  mmap_file = file_reopen (file);
+  length = file_length (mmap_file);
+  lock_release(&file_lock);
+
+
+  //check address and properties.
+
+  if(load_mmap (mmap_file, 0, addr, length, ROUND_UP (length, PGSIZE)-length, true))
+  {
+    struct mmap_elem *mmap_elem = malloc (sizeof (struct mmap_elem));
+    mmap_elem->file = mmap_file;
+    mmap_elem->addr = addr;
+    mmap_elem->length = length;
+    mmap_elem->id = ++(thread_current()->mmap_t_allocator);
+    list_push_back (&thread_current ()->mmap_list, &mmap_elem->list_elem);
+    f->eax = mmap_elem->id;
+  }
+  f->eax = -1;
+  */
+}
+
+//Assume upage and other properties are legal.
+static bool
+load_mmap (struct file *file, off_t ofs, uint8_t *upage,
+              uint32_t read_bytes, uint32_t zero_bytes, bool writable) 
+{
+  ASSERT ((read_bytes + zero_bytes) % PGSIZE == 0);
+  ASSERT (pg_ofs (upage) == 0);
+  ASSERT (ofs % PGSIZE == 0);
+  
+  struct hash* sp_table = &thread_current()->sp_table;
+  struct hash_elem* h_elem;
+  
+  while (read_bytes > 0 || zero_bytes > 0) 
+    {
+      /* Calculate how to fill this page.
+         We will read PAGE_READ_BYTES bytes from FILE
+         and zero the final PAGE_ZERO_BYTES bytes. */
+      size_t page_read_bytes = read_bytes < PGSIZE ? read_bytes : PGSIZE;
+      size_t page_zero_bytes = PGSIZE - page_read_bytes;
+
+      h_elem = supplemental_page_table_lookup (sp_table, upage);
+    
+      ASSERT (h_elem == NULL);
+      struct spage *spage_temp = (struct spage *)malloc (sizeof (struct spage));
+      ASSERT (spage_temp != NULL)
+      /*if (spage_temp == NULL)
+        {
+          //return to original state.
+          return false; 
+        }
+      */
+      spage_temp->where_to_read = ofs;
+      spage_temp->read_file = file;
+      spage_temp->read_size = page_read_bytes;
+      spage_temp->upage = upage;
+      spage_temp->read_from = MMAP_P;
+      insert_to_supplemental_page_table (sp_table, spage_temp);
+      /* Advance. */
+      read_bytes -= page_read_bytes;
+      zero_bytes -= page_zero_bytes;
+      upage += PGSIZE;
+      ofs += PGSIZE;
+    }
+  return true;
+}
+
+struct mmap_elem *
+find_mmap_elem (int id)
+{
+  struct list_elem* e;
+  struct list *mmap_list = &thread_current ()->mmap_list;
+  struct mmap_elem *mmap_elem;
+  //binary search can be applied.
+  for (e = list_begin (mmap_list); e != list_end (mmap_list);
+       e = list_next (e))
+    {
+      mmap_elem = list_entry (e, struct mmap_elem, elem);
+      if(mmap_elem->id == id)
+        return mmap_elem;
+    }
+  return NULL;
+}
+
+
+void
+munmap_handle (struct intr_frame *f UNUSED, int id)
+{/*
+  struct mmap_elem *mmap_elem = find_mmap_elem (id);
+  struct thread *cur = thread_current ();
+  clear_supplemental_page_table_mmap (&cur->sp_table, mmap_elem->addr, 
+                                      (uint8_t *)mmap_elem->addr + mmap_elem->length);
+                                      */
+}
 
 
 //According to the value *((int*)(f->esp)), categorize the interrupt and call
@@ -352,6 +469,7 @@ syscall_handler (struct intr_frame *f)
     case SYS_FILESIZE:
     case SYS_TELL:
     case SYS_CLOSE: 
+    case SYS_MUNMAP:
 
     if(!check_user_addr((int*)(f->esp)+1))
       exit_handle(NULL, -1);
@@ -367,6 +485,7 @@ syscall_handler (struct intr_frame *f)
         case SYS_FILESIZE: filesize_handle(f, (int)arg0); break;
         case SYS_TELL: tell_handle(f, (int)arg0); break;
         case SYS_CLOSE: close_handle(f, (int)arg0); break;
+        case SYS_MUNMAP: munmap_handle (f, (int)arg0); break;
       }
 
     break;
@@ -374,7 +493,7 @@ syscall_handler (struct intr_frame *f)
     
     case SYS_CREATE: 
     case SYS_SEEK:
-
+    case SYS_MMAP:
     if((!check_user_addr((int*)(f->esp)+1)) || (!check_user_addr((int*)(f->esp)+2)))
       exit_handle(NULL, -1);
 
@@ -384,6 +503,7 @@ syscall_handler (struct intr_frame *f)
       switch(c){
         case SYS_CREATE: create_handle(f, (char*)arg0, (unsigned)arg1); break;
         case SYS_SEEK: seek_handle(f, (int)arg0, (unsigned)arg1); break;
+        case SYS_MMAP: mmap_handle(f, (int)arg0, (void *)arg1); break;
       }
     break;
     

@@ -205,7 +205,8 @@ delete_page_from_frame_table_help (struct hash_elem *h_elem, void *aux)
   void *kpage = pagedir_get_page (aux, spage->upage);
   if (kpage != NULL)
   {
-    ASSERT (delete_upage_from_frame_table (kpage, spage->upage, cur));
+    //there could be eviction meanwhile.
+    delete_upage_from_frame_table (kpage, spage->upage, cur);
   }
 }
 
@@ -534,8 +535,6 @@ load (const char *file_name, void (**eip) (void), void **esp)
 
 /* load() helpers. */
 
-static bool install_page (void *upage, void *kpage, bool writable);
-
 /* Checks whether PHDR describes a valid, loadable segment in
    FILE and returns true if so, false otherwise. */
 static bool
@@ -645,60 +644,38 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 static bool
 setup_stack (void **esp) 
 {
-  uint8_t *kpage;
-  bool success = false;
-  struct hash* sp_table = &thread_current()->sp_table;
-  
-  kpage = palloc_get_page (PAL_USER | PAL_ZERO);
-  if (kpage == NULL)
-  {
-    return false;
-  }
+    bool success = false;
+    struct hash* sp_table = &thread_current()->sp_table;
+    struct frame* frame = make_frame (STACK_F, -1, PGSIZE, NULL, ((uint8_t *) PHYS_BASE) - PGSIZE, false);
 
-  success = install_page (((uint8_t *) PHYS_BASE) - PGSIZE, kpage, true);
-  if (success)
-  {
+    if( frame == NULL)
+    {
+      return false;
+    }
+
+    success = insert_to_frame_table (PAL_USER | PAL_ZERO, frame);
+  
+    if (success == false)
+    {
+      free (frame);
+      return false;
+    }
     struct spage *spage_temp = (struct spage *)malloc (sizeof (struct spage));
     
     if (spage_temp == NULL)
     {
-      palloc_free_page (kpage);
-      return false; 
+      delete_upage_from_frame_table (frame->kpage, ((uint8_t *) PHYS_BASE) - PGSIZE, thread_current());
+      return false;
     }
     spage_temp->read_from = STACK_P;
     spage_temp->read_file = NULL;
     spage_temp->where_to_read = -1;
     spage_temp->read_size = 0;
-    spage_temp->upage = PHYS_BASE - PGSIZE;
+    spage_temp->upage = ((uint8_t *) PHYS_BASE) - PGSIZE;
     
     insert_to_supplemental_page_table (sp_table, spage_temp);
-    
-    //is it need lock?
-    struct frame* frame = make_frame (STACK_F, -1, PGSIZE, kpage, PHYS_BASE - PGSIZE, false);
-    insert_to_frame_table (frame);
     *esp = PHYS_BASE;
-  }
-  else
-      palloc_free_page (kpage);
-  return success;
+  
+    return success;
 }
 
-/* Adds a mapping from user virtual address UPAGE to kernel
-   virtual address KPAGE to the page table.
-   If WRITABLE is true, the user process may modify the page;
-   otherwise, it is read-only.
-   UPAGE must not already be mapped.
-   KPAGE should probably be a page obtained from the user pool
-   with palloc_get_page().
-   Returns true on success, false if UPAGE is already mapped or
-   if memory allocation fails. */
-static bool
-install_page (void *upage, void *kpage, bool writable)
-{
-  struct thread *t = thread_current ();
-
-  /* Verify that there's not already a page at that virtual
-     address, then map our page there. */
-  return (pagedir_get_page (t->pagedir, upage) == NULL
-          && pagedir_set_page (t->pagedir, upage, kpage, writable));
-}
