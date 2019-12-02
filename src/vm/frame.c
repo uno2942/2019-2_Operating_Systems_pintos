@@ -8,6 +8,7 @@
 #include "threads/malloc.h"
 #include "threads/synch.h"
 #include "userprog/pagedir.h"
+#include "userprog/syscall.h"
 static struct hash frame_table;
 static struct lock frame_lock;
 
@@ -21,7 +22,7 @@ void clear_target_pte (struct frame *f);
 static bool install_page (struct thread *t, void *upage, void *kpage, bool writable);
 static struct frame *frame_table_lookup (void *kpage);
 static struct list_elem *find_elem_in_upage_list (struct list *upage_list, void *upage, struct thread* owner);
-static struct frame *do_eviction (void *upage, bool writable, enum write_to write_to, int32_t where_to_write, uint32_t write_size);
+static struct frame *do_eviction (void *upage, bool writable, enum write_to write_to, struct file *write_file, int32_t where_to_write, uint32_t write_size);
 static void clear_frame (struct frame *frame);
 static void free_frame (struct frame *frame);
 static struct frame* find_victim (void);
@@ -89,6 +90,7 @@ frame_table_lookup (void *kpage)
 
 struct frame*
 make_frame (enum write_to write_to,
+            struct file *write_file,
             int32_t where_to_write,
             uint32_t write_size,
             void *kpage,
@@ -102,6 +104,7 @@ make_frame (enum write_to write_to,
         return NULL;
     
     temp_frame->write_to = write_to;
+    temp_frame->write_file = write_file;
     temp_frame->where_to_write = where_to_write;
     temp_frame->write_size = write_size;
     temp_frame->kpage = kpage;
@@ -200,20 +203,19 @@ clear_frame (struct frame *frame)
     struct list *upage_list = &frame->upage_list;
     struct upage_for_frame_table *upage_temp;
     struct list_elem *l_elem;
+    
+    //if it is dirty, do something.
     if (check_and_set_dirty_for_frame (frame))
     {
         switch (frame->write_to)
         {
             case CODE_F: ASSERT (0); break;
-            case MMAP_F: //file_write; break;
-
-
-
-
-
-
-
-            break;
+            case MMAP_F: 
+                file_lock_acquire ();
+                file_seek (frame->write_file, frame->where_to_write);
+                file_write (frame->write_file, frame->kpage, frame->write_size);
+                file_lock_release ();
+                break;
             case DATA_F:
             case STACK_F: //write_to_swap; break;
             break;
@@ -360,6 +362,7 @@ find_victim ()
 static struct frame*
 do_eviction (void *upage, bool writable,
             enum write_to write_to,
+            struct file *write_file,
             int32_t where_to_write,
             uint32_t write_size
             )
@@ -393,7 +396,7 @@ do_eviction (void *upage, bool writable,
         return NULL;
     }
     
-    target_f = make_frame (write_to, where_to_write, write_size,
+    target_f = make_frame (write_to, write_file, where_to_write, write_size,
                            kpage, upage, false);
     if(target_f == NULL)
     {

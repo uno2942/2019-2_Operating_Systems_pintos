@@ -230,7 +230,7 @@ load_page_in_memory (struct file *file, off_t ofs, uint8_t *upage,
   bool success;
   
   struct frame *frame = make_frame (convert_read_from_to_write_to (read_from),
-                          ofs, page_read_bytes, NULL, upage, true);
+                          file, ofs, page_read_bytes, NULL, upage, true);
   if(frame == NULL)
     PANIC ("malloc fail");
   

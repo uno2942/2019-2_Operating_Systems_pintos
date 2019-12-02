@@ -650,7 +650,7 @@ setup_stack (void **esp)
 {
     bool success = false;
     struct hash* sp_table = &thread_current()->sp_table;
-    struct frame* frame = make_frame (STACK_F, -1, PGSIZE, NULL, ((uint8_t *) PHYS_BASE) - PGSIZE, false);
+    struct frame* frame = make_frame (STACK_F, NULL, -1, PGSIZE, NULL, ((uint8_t *) PHYS_BASE) - PGSIZE, false);
 
     if( frame == NULL)
     {
