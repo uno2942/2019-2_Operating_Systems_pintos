@@ -26,7 +26,7 @@
 static thread_func start_process NO_RETURN;
 static bool load (const char *cmdline, void (**eip) (void), void **esp);
 
-void delete_page_from_frame_table_help (struct hash_elem *h_elem, void *aux);
+void delete_page_from_frame_table_help (struct hash_elem *h_elem, void *aux UNUSED);
 void arrange_frame_table (struct hash* sp_table, uint32_t *pd);
 /* Starts a new thread running a user program loaded from
    FILENAME.  The new thread may be scheduled (and may even exit)
@@ -198,15 +198,11 @@ process_wait (tid_t child_tid)
 }
 
 void
-delete_page_from_frame_table_help (struct hash_elem *h_elem, void *aux)
+delete_page_from_frame_table_help (struct hash_elem *h_elem, void *aux UNUSED)
 {
   struct thread *cur = thread_current ();
   struct spage *spage = hash_entry (h_elem, struct spage, hash_elem);
-  if (kpage != NULL)
-  {
-    //there could be eviction meanwhile.
-    delete_upage_from_frame_and_swap_table (spage->upage, cur);
-  }
+  delete_upage_from_frame_and_swap_table (spage->upage, cur);
 }
 
 void
@@ -649,7 +645,9 @@ setup_stack (void **esp)
 {
     bool success = false;
     struct hash* sp_table = &thread_current()->sp_table;
-    struct frame* frame = make_frame (STACK_F, NULL, -1, PGSIZE, NULL, ((uint8_t *) PHYS_BASE) - PGSIZE, false);
+
+    //frame part
+    struct frame* frame = make_frame (SWAP_F, NULL, -1, PGSIZE, NULL, ((uint8_t *) PHYS_BASE) - PGSIZE, false);
 
     if( frame == NULL)
     {
@@ -663,10 +661,13 @@ setup_stack (void **esp)
       free (frame);
       return false;
     }
+
+    //spage part
     struct spage *spage_temp = (struct spage *)malloc (sizeof (struct spage));
     
     if (spage_temp == NULL)
     {
+      //roll-back
       delete_upage_from_frame_and_swap_table (((uint8_t *) PHYS_BASE) - PGSIZE, thread_current());
       return false;
     }
@@ -677,6 +678,7 @@ setup_stack (void **esp)
     spage_temp->upage = ((uint8_t *) PHYS_BASE) - PGSIZE;
     
     insert_to_supplemental_page_table (sp_table, spage_temp);
+    
     *esp = PHYS_BASE;
   
     return success;

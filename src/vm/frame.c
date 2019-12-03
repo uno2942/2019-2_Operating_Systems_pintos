@@ -9,6 +9,8 @@
 #include "threads/synch.h"
 #include "userprog/pagedir.h"
 #include "userprog/syscall.h"
+#include "vm/page.h"
+#include "vm/swap.h"
 static struct hash frame_table;
 static struct lock frame_lock;
 
@@ -22,7 +24,7 @@ void clear_target_pte (struct frame *f);
 static bool install_page (struct thread *t, void *upage, void *kpage, bool writable);
 static struct frame *frame_table_lookup (void *kpage);
 static struct list_elem *find_elem_in_upage_list (struct list *upage_list, void *upage, struct thread* owner);
-static struct frame *do_eviction (void *upage, bool writable, enum write_to write_to, struct file *write_file, int32_t where_to_write, uint32_t write_size);
+static struct frame* do_eviction (struct frame* frame);
 static void clear_frame (struct frame *frame, bool is_exit);
 static void free_frame (struct frame *frame);
 static struct frame* find_victim (void);
@@ -34,6 +36,7 @@ enum write_to convert_read_from_to_write_to (enum read_from read_from)
         case MMAP_P: return MMAP_F;
         case DATA_P:
         case STACK_P: return SWAP_F;
+        default: ASSERT (0);
     }
 }
 
@@ -129,6 +132,9 @@ make_frame (enum write_to write_to,
     return temp_frame;
 }
 
+
+//Allocate new kpage, (now, sharing is unable) and put it to FRAMAE->kpage
+//does not free FRAMAE.
 bool
 insert_to_frame_table (enum palloc_flags flags, struct frame *frame)
 {
@@ -141,7 +147,10 @@ insert_to_frame_table (enum palloc_flags flags, struct frame *frame)
     frame->kpage = palloc_get_page (flags);
     if (frame->kpage == NULL)
     {
-        //do_eviction
+        if (do_eviction (frame) == NULL)
+            PANIC ("Unable to allocate page");
+        if (flags & PAL_ZERO)
+            memset (frame->kpage, 0, PGSIZE);
     }
     else
         ASSERT (frame_table_lookup (frame->kpage) == NULL);
@@ -270,7 +279,7 @@ delete_upage_from_frame_and_swap_table (void *upage, struct thread* owner)
     
     if(kpage == NULL)
     {
-        struct hash_elem *h_elem = supplemental_page_table_lookup (owner, upage);
+        struct hash_elem *h_elem = supplemental_page_table_lookup (&owner->sp_table, upage);
         
         ASSERT (h_elem != NULL)
         struct spage *spage_temp = hash_entry (h_elem, struct spage, hash_elem);
@@ -319,6 +328,9 @@ delete_frame_from_frame_table (void *kpage)
 {
     struct frame *temp_frame;
     struct upage_for_frame_table *upage_temp;
+    struct list *upage_list;
+    struct hash_elem *h_elem;
+    struct spage *spage_temp;
     lock_acquire(&frame_lock);
     
     temp_frame = frame_table_lookup (kpage);
@@ -327,10 +339,12 @@ delete_frame_from_frame_table (void *kpage)
     {
         if (temp_frame->write_to == SWAP_F)
         {
+            upage_list = &temp_frame->upage_list;
             upage_temp = list_entry (list_begin (upage_list), struct upage_for_frame_table,
                                      list_elem);
-            spage_temp = supplemental_page_table_lookup (upage_temp->owner, upage_temp->upage);
-            ASSERT (spage_temp != NULL)
+            h_elem = supplemental_page_table_lookup (&upage_temp->owner->sp_table, upage_temp->upage);
+            ASSERT (h_elem != NULL)
+            spage_temp = hash_entry (h_elem, struct spage, hash_elem);
             clear_swap_slot (spage_temp->where_to_read);
             //need to delete connection from spage to swap
         }
@@ -394,16 +408,13 @@ find_victim ()
 
 
 static struct frame*
-do_eviction (void *upage, bool writable,
-            enum write_to write_to,
-            struct file *write_file,
-            int32_t where_to_write,
-            uint32_t write_size
-            )
+do_eviction (struct frame* frame)
 {
     struct frame *target_f = NULL;
     void *kpage;
-    lock_acquire(&frame_lock);
+    void *upage;
+    bool writable = true;
+    ASSERT (lock_held_by_current_thread (&frame_lock));
 
     target_f = find_victim ();
     
@@ -419,10 +430,14 @@ do_eviction (void *upage, bool writable,
     hash_delete(&frame_table, &target_f->hash_elem);
     free (target_f);
 
-    #ifndef NDEBUG
-    memset (kpage, 0xcc, PGSIZE);
-    #endif
 
+    if (frame->write_to == CODE_F)
+        writable = false;
+    
+    ASSERT (list_size (&frame->upage_list) == 1);
+    upage = list_entry (list_begin (&frame->upage_list), 
+                        struct upage_for_frame_table, list_elem)->upage; 
+    
     if (!install_page (thread_current(), upage, kpage, writable)) 
     {
         palloc_free_page (kpage);
@@ -430,16 +445,10 @@ do_eviction (void *upage, bool writable,
         return NULL;
     }
     
-    target_f = make_frame (write_to, write_file, where_to_write, write_size,
-                           kpage, upage, false);
-    if(target_f == NULL)
-    {
-        PANIC ("malloc fail in eviction");
-    }
-    hash_insert (&frame_table, &target_f->hash_elem);
+    frame->kpage = kpage;
+    hash_insert (&frame_table, &frame->hash_elem);
 
-    lock_release(&frame_lock);
-    return target_f;
+    return frame;
 }
 
 bool

@@ -444,12 +444,11 @@ munmap_handle (struct intr_frame *f UNUSED, int id)
   struct hash* sp_table = &cur->sp_table;
   uint8_t *start_addr = mmap_elem->addr;
   uint8_t *now_addr;
-  void *kaddr;
   int i=0;
   while (i < mmap_elem->length)
   {
     now_addr = start_addr + i;
-    delete_upage_from_frame_table (now_addr, cur);
+    delete_upage_from_frame_and_swap_table (now_addr, cur);
     delete_from_supplemental_page_table (sp_table, now_addr);
     i += PGSIZE;
   }

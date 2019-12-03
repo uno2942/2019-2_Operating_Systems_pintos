@@ -7,10 +7,11 @@
 
 #define PAGE_RATIO_PER_SWAP 256
 
-static bitmap *swap_map;
-struct block *block;
-static lock swap_lock;
+static struct bitmap *swap_map;
+static struct block *block;
+static struct lock swap_lock;
 
+static void set_pointer_to_spage (struct frame *f, size_t swap_idx);
 void
 swap_init ()
 {
@@ -19,21 +20,23 @@ swap_init ()
     swap_map = bitmap_create (block_size (block) * 256);
 }
 
-void
+static void
 set_pointer_to_spage (struct frame *f, size_t swap_idx)
 {
     struct list *upage_list = &f->upage_list;
     struct list_elem *e;
     struct upage_for_frame_table *upage_for_frame;
+    struct hash_elem *h_elem;
     struct spage *spage_temp;
     check_frame_lock ();
     for (e = list_begin (upage_list); e != list_end (upage_list); e = list_next (e))
     {
         //may need spage lock
         upage_for_frame = list_entry (e, struct upage_for_frame_table, list_elem);
-        spage_temp = supplemental_page_table_lookup (upage_for_frame->owner, 
+        h_elem = supplemental_page_table_lookup (&upage_for_frame->owner->sp_table, 
                                                      upage_for_frame->upage);
-        ASSERT (spage_temp != NULL)
+        ASSERT (h_elem != NULL)
+        spage_temp = hash_entry (h_elem, struct spage, hash_elem);
         spage_temp->read_file = NULL;
         spage_temp->where_to_read = swap_idx;
     }
@@ -73,14 +76,14 @@ load_from_swap (struct spage *spage, struct frame *f)
   uint8_t *kpage;
   size_t i;
   ASSERT (f->pin == true); //prevent eviction.
-  ASSERT (spage->where_to_write >= 0);
+  ASSERT (spage->where_to_read >= 0);
   sector = 8 * swap_idx;
   kpage = f->kpage;
   for (i = 0; i < 8; i++)
   {
       block_read (block, sector + i, kpage + BLOCK_SECTOR_SIZE * i);
   }
-  ASSERT (&list_size (f->upage_list) == 1);
+  ASSERT (list_size (&f->upage_list) == 1);
   set_pointer_to_spage (f, -1); //I should assume that only one process
                                 //accesses to swap table.
   ASSERT (bitmap_all (swap_map, swap_idx, 1));

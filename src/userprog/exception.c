@@ -15,13 +15,13 @@
 #include "userprog/syscall.h"
 #include "vm/page.h"
 #include "vm/frame.h"
-
+#include "vm/swap.h"
 /* Number of page faults processed. */
 static long long page_fault_cnt;
 
 static void kill (struct intr_frame *);
 static void page_fault (struct intr_frame *);
-static bool load_page_in_memory (struct file *file, off_t ofs, uint8_t *upage, uint32_t page_read_bytes, uint32_t page_zero_bytes, bool writable, enum read_from read_from);
+static bool load_page_in_memory (struct file *file, off_t ofs, uint8_t *upage, uint32_t page_read_bytes, uint32_t page_zero_bytes, enum read_from read_from);
 
 /* Registers handlers for interrupts that can be caused by user
    programs.
@@ -159,9 +159,8 @@ page_fault (struct intr_frame *f)
   write = (f->error_code & PF_W) != 0;
   user = (f->error_code & PF_U) != 0;
   
-//   printf("entered\n");
   if(user == true)
-      {
+   {
       struct hash* sp_table = &thread_current()->sp_table;
       struct hash_elem *h_elem = supplemental_page_table_lookup (sp_table, pg_round_down (fault_addr));
 //      printf("fault: %p\n",pg_round_down (fault_addr));
@@ -170,33 +169,22 @@ page_fault (struct intr_frame *f)
          goto real_fault;
       }
       struct spage* spage = hash_entry (h_elem, struct spage, hash_elem);
-      switch (spage->read_from)
+      if(not_present)
       {
-         case CODE_P:
-//         printf("entered\n");
-            if (load_page_in_memory(spage->read_file, spage->where_to_read, pg_round_down (fault_addr),
-                  spage->read_size, PGSIZE-spage->read_size, false, spage->read_from)
+         if (load_page_in_memory(spage->read_file, spage->where_to_read, pg_round_down (fault_addr),
+                  spage->read_size, PGSIZE - spage->read_size, spage->read_from)
                   == false)
                goto real_fault;
             else
                return;
-         case MMAP_P: 
-         case DATA_P: 
-            if (load_page_in_memory(spage->read_file, spage->where_to_read, pg_round_down (fault_addr),
-                  spage->read_size, PGSIZE-spage->read_size, true, spage->read_from)
-                  == false)
-               goto real_fault;
-            else
-               return;
-         case STACK_P:
-//         printf("entered2\n");
-         break;
       }
-  }
-  else
-  {
-//     printf("3\n");
-  }
+      else
+      {
+         goto real_fault;
+      }
+   }
+   else
+      goto real_fault;
   
   /* Count page faults. */
 real_fault:
@@ -217,9 +205,9 @@ real_fault:
 static bool
 load_page_in_memory (struct file *file, off_t ofs, uint8_t *upage,
                         uint32_t page_read_bytes, uint32_t page_zero_bytes,
-                        bool writable, enum read_from read_from)
+                        enum read_from read_from)
 {
-   asf
+   
   ASSERT ((page_read_bytes + page_zero_bytes) % PGSIZE == 0);
   ASSERT (pg_ofs (upage) == 0);
   ASSERT (ofs % PGSIZE == 0);
@@ -249,17 +237,25 @@ load_page_in_memory (struct file *file, off_t ofs, uint8_t *upage,
   ASSERT (spage!=NULL && spage->read_file == file && spage->where_to_read == ofs 
          && spage->read_size == page_read_bytes && spage->read_from == read_from); 
   
-  /* Load this page. */
-   file_lock_acquire ();
-   file_seek (file, ofs);
-   success = (file_read (file, kpage, page_read_bytes) == (int) page_read_bytes);
-   file_lock_release ();
-   if (success == false)
-    {
-      delete_upage_from_frame_and_swap_table (upage, thread_current ());
-      return false;
-    }
-  memset (kpage + page_read_bytes, 0, page_zero_bytes);
+  if (read_from == CODE_P || read_from == MMAP_P ||
+      (read_from == DATA_P && ofs < 0) )
+   {
+      /* Load this page. */
+      file_lock_acquire ();
+      file_seek (file, ofs);
+      success = (file_read (file, kpage, page_read_bytes) == (int) page_read_bytes);
+      file_lock_release ();
+      if (success == false)
+      {
+         delete_upage_from_frame_and_swap_table (upage, thread_current ());
+         return false;
+      }
+      memset (kpage + page_read_bytes, 0, page_zero_bytes);
+   }
+   else
+   {
+      load_from_swap (spage, frame);
+   }
   pagedir_set_accessed (thread_current ()->pagedir, kpage, false);
   pagedir_set_dirty (thread_current ()->pagedir, kpage, false);
   
