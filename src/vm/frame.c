@@ -405,15 +405,22 @@ find_victim ()
 {
 //    static ; //for clock algorithm
     static struct hash_iterator iter;
+    static int i = 0;
+    int j = 0;
+    int len;
     struct frame *target_f = NULL;
     enum intr_level old_level;
-    int i = 0;
     ASSERT (lock_held_by_current_thread (&frame_lock));
     
     //It can be a infinite loop if every process set access bit to their frame in frequent context
     //switch.
     old_level = intr_disable ();
     hash_first (&iter, &frame_table);
+    len = hash_size (&frame_table);
+    for (j = 0; j < i % len; j++)
+    {
+        hash_next (&iter);
+    }
     while (hash_next (&iter))
     {
         target_f = hash_entry (hash_cur (&iter), struct frame, hash_elem);
@@ -422,7 +429,6 @@ find_victim ()
     }
     if(hash_cur (&iter) == NULL)
     {
-        i++;
         hash_first (&iter, &frame_table);
         while (hash_next (&iter))
         {
@@ -430,7 +436,18 @@ find_victim ()
             if(target_f->pin == false && !check_and_set_accesse_for_frame (target_f))
                 break;
         }
+        if(hash_cur (&iter) == NULL)
+        {
+            hash_first (&iter, &frame_table);
+            while (hash_next (&iter))
+            {
+                target_f = hash_entry (hash_cur (&iter), struct frame, hash_elem);
+                if(target_f->pin == false && !check_and_set_accesse_for_frame (target_f))
+                    break;
+            }
+        }
     }
+    i++;
     intr_set_level (old_level);
     if(target_f == NULL)
     {
