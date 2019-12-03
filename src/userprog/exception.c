@@ -236,9 +236,8 @@ load_page_in_memory (struct file *file, off_t ofs, uint8_t *upage,
   spage = hash_entry (h_elem, struct spage, hash_elem);
   ASSERT (spage!=NULL && spage->read_file == file && spage->where_to_read == ofs 
          && spage->read_size == page_read_bytes && spage->read_from == read_from); 
-  
   if (read_from == CODE_P || read_from == MMAP_P ||
-      (read_from == DATA_P && ofs < 0) )
+      (read_from == DATA_P && ofs >= 0) )
    {
       /* Load this page. */
       file_lock_acquire ();
@@ -253,9 +252,8 @@ load_page_in_memory (struct file *file, off_t ofs, uint8_t *upage,
       memset (kpage + page_read_bytes, 0, page_zero_bytes);
    }
    else
-   {
       load_from_swap (spage, frame);
-   }
+      
   pagedir_set_accessed (thread_current ()->pagedir, kpage, false);
   pagedir_set_dirty (thread_current ()->pagedir, kpage, false);
   

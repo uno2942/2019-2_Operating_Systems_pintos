@@ -7,6 +7,7 @@
 #include "threads/palloc.h"
 #include "threads/malloc.h"
 #include "threads/synch.h"
+#include "threads/interrupt.h"
 #include "userprog/pagedir.h"
 #include "userprog/syscall.h"
 #include "vm/page.h"
@@ -221,11 +222,18 @@ clear_frame (struct frame *frame, bool is_exit)
     struct list *upage_list = &frame->upage_list;
     struct upage_for_frame_table *upage_temp;
     struct list_elem *l_elem;
+    bool is_dirty;
+    
+    enum intr_level old_level;
     
     //first, disconnect the connection to previous process.
+    old_level = intr_disable ();
+    is_dirty = check_and_set_dirty_for_frame (frame);
     clear_target_pte (frame);
+    intr_set_level (old_level);
+
     //if it is dirty, do something.
-    if (check_and_set_dirty_for_frame (frame))
+    if (is_dirty)
     {
         switch (frame->write_to)
         {
