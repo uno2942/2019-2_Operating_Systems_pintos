@@ -202,11 +202,10 @@ delete_page_from_frame_table_help (struct hash_elem *h_elem, void *aux)
 {
   struct thread *cur = thread_current ();
   struct spage *spage = hash_entry (h_elem, struct spage, hash_elem);
-  void *kpage = pagedir_get_page (aux, spage->upage);
   if (kpage != NULL)
   {
     //there could be eviction meanwhile.
-    delete_upage_from_frame_table (kpage, spage->upage, cur);
+    delete_upage_from_frame_and_swap_table (spage->upage, cur);
   }
 }
 
@@ -668,7 +667,7 @@ setup_stack (void **esp)
     
     if (spage_temp == NULL)
     {
-      delete_upage_from_frame_table (frame->kpage, ((uint8_t *) PHYS_BASE) - PGSIZE, thread_current());
+      delete_upage_from_frame_and_swap_table (((uint8_t *) PHYS_BASE) - PGSIZE, thread_current());
       return false;
     }
     spage_temp->read_from = STACK_P;

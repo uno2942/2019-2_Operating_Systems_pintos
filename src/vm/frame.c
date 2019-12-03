@@ -23,12 +23,18 @@ static bool install_page (struct thread *t, void *upage, void *kpage, bool writa
 static struct frame *frame_table_lookup (void *kpage);
 static struct list_elem *find_elem_in_upage_list (struct list *upage_list, void *upage, struct thread* owner);
 static struct frame *do_eviction (void *upage, bool writable, enum write_to write_to, struct file *write_file, int32_t where_to_write, uint32_t write_size);
-static void clear_frame (struct frame *frame);
+static void clear_frame (struct frame *frame, bool is_exit);
 static void free_frame (struct frame *frame);
 static struct frame* find_victim (void);
 enum write_to convert_read_from_to_write_to (enum read_from read_from)
 {
-    return (enum write_to) read_from;
+    switch (read_from)
+    {
+        case CODE_P: return CODE_F;
+        case MMAP_P: return MMAP_F;
+        case DATA_P:
+        case STACK_P: return SWAP_F;
+    }
 }
 
 unsigned
@@ -167,8 +173,7 @@ insert_to_frame_table (enum palloc_flags flags, struct frame *frame)
         {
             case CODE_F: writable = false; break;
             case MMAP_F:
-            case DATA_F:
-            case STACK_F: writable = true; break;
+            case SWAP_F: writable = true; break;
             default: ASSERT (0);
         }
         /* Add the page to the process's address space. */
@@ -195,8 +200,12 @@ insert_to_frame_table (enum palloc_flags flags, struct frame *frame)
     return success;
 }
 
+
+//if the process exit, then don't write to swap for DATA, SWAP.
+//Only deal with upage_list and do clear_target_pte.
+//Since the frame will be replaced or deleted, save the data.
 static void
-clear_frame (struct frame *frame)
+clear_frame (struct frame *frame, bool is_exit)
 {   
     ASSERT (lock_held_by_current_thread (&frame_lock));
     
@@ -218,9 +227,10 @@ clear_frame (struct frame *frame)
                 file_write (frame->write_file, frame->kpage, frame->write_size);
                 file_lock_release ();
                 break;
-            case DATA_F:
-            case STACK_F: put_to_swap (frame); break;
-            break;
+            case SWAP_F:
+                if (!is_exit)
+                    put_to_swap (frame);
+                break;
         }
     }
 
@@ -237,7 +247,7 @@ free_frame (struct frame *frame)
 {   
     ASSERT (lock_held_by_current_thread (&frame_lock));
     
-    clear_frame (frame);
+    clear_frame (frame, true);
     hash_delete(&frame_table, &frame->hash_elem);
     palloc_free_page (frame->kpage);
     free(frame);
@@ -245,20 +255,36 @@ free_frame (struct frame *frame)
 
 //maybe not deleted if it is evicted.
 bool
-delete_upage_from_frame_table (void *kpage, void *upage, struct thread* owner)
+delete_upage_from_frame_and_swap_table (void *upage, struct thread* owner)
 {
     struct frame *temp_frame;
     struct upage_for_frame_table *upage_temp;
     struct list *upage_list;
     struct list_elem *l_elem;
+    void *kpage;
     lock_acquire(&frame_lock);
-
-    temp_frame = frame_table_lookup (kpage);
-    if (temp_frame == NULL)
+    
+    ASSERT (upage != NULL && owner != NULL);
+    
+    kpage = pagedir_get_page (owner->pagedir, upage);
+    
+    if(kpage == NULL)
+    {
+        struct hash_elem *h_elem = supplemental_page_table_lookup (owner, upage);
+        
+        ASSERT (h_elem != NULL)
+        struct spage *spage_temp = hash_entry (h_elem, struct spage, hash_elem);
+        if (convert_read_from_to_write_to (spage_temp->read_from) == SWAP_F)
         {
-            lock_release(&frame_lock);
-            return false;
+            clear_swap_slot (spage_temp->where_to_read);
+            spage_temp->where_to_read = -1;
         }
+        lock_release(&frame_lock);
+        return true;
+    }
+    
+    temp_frame = frame_table_lookup (kpage);
+    ASSERT (temp_frame != NULL)
 
     upage_list = &temp_frame->upage_list;
 
@@ -271,10 +297,7 @@ delete_upage_from_frame_table (void *kpage, void *upage, struct thread* owner)
             free_frame (temp_frame);
         }
         else
-        {
-            lock_release(&frame_lock);
-            return false;
-        }
+            PANIC ("Not valid deletion");
     }
     else
     {
@@ -290,20 +313,30 @@ delete_upage_from_frame_table (void *kpage, void *upage, struct thread* owner)
     return true;
 }
 
+//may be not used.
 bool
 delete_frame_from_frame_table (void *kpage)
 {
     struct frame *temp_frame;
+    struct upage_for_frame_table *upage_temp;
     lock_acquire(&frame_lock);
     
     temp_frame = frame_table_lookup (kpage);
     
     if (!temp_frame)
     {
-        lock_release(&frame_lock);
-        return false;
+        if (temp_frame->write_to == SWAP_F)
+        {
+            upage_temp = list_entry (list_begin (upage_list), struct upage_for_frame_table,
+                                     list_elem);
+            spage_temp = supplemental_page_table_lookup (upage_temp->owner, upage_temp->upage);
+            ASSERT (spage_temp != NULL)
+            clear_swap_slot (spage_temp->where_to_read);
+            //need to delete connection from spage to swap
+        }
     }
-    free_frame (temp_frame);
+    else
+        free_frame (temp_frame);
 
     lock_release(&frame_lock);
     return true;
@@ -380,7 +413,7 @@ do_eviction (void *upage, bool writable,
         return NULL;
     }
 
-    clear_frame (target_f);
+    clear_frame (target_f, false);
     
     kpage = target_f->kpage;
     hash_delete(&frame_table, &target_f->hash_elem);
@@ -508,4 +541,10 @@ install_page (struct thread *t, void *upage, void *kpage, bool writable)
      address, then map our page there. */
   return (pagedir_get_page (t->pagedir, upage) == NULL
           && pagedir_set_page (t->pagedir, upage, kpage, writable));
+}
+
+bool
+check_frame_lock ()
+{
+    return lock_held_by_current_thread (&frame_lock);
 }

@@ -213,11 +213,13 @@ real_fault:
 
 //For now, I assumed that there is no already existing frame in frame table.
 
+//In case of MMAP, CODE, and DATA for first time, read file and put it on kpage
 static bool
 load_page_in_memory (struct file *file, off_t ofs, uint8_t *upage,
                         uint32_t page_read_bytes, uint32_t page_zero_bytes,
                         bool writable, enum read_from read_from)
 {
+   asf
   ASSERT ((page_read_bytes + page_zero_bytes) % PGSIZE == 0);
   ASSERT (pg_ofs (upage) == 0);
   ASSERT (ofs % PGSIZE == 0);
@@ -254,7 +256,7 @@ load_page_in_memory (struct file *file, off_t ofs, uint8_t *upage,
    file_lock_release ();
    if (success == false)
     {
-      delete_upage_from_frame_table (kpage, upage, thread_current ());
+      delete_upage_from_frame_and_swap_table (upage, thread_current ());
       return false;
     }
   memset (kpage + page_read_bytes, 0, page_zero_bytes);

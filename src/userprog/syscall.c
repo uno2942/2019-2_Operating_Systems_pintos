@@ -449,9 +449,7 @@ munmap_handle (struct intr_frame *f UNUSED, int id)
   while (i < mmap_elem->length)
   {
     now_addr = start_addr + i;
-    kaddr = pagedir_get_page (cur->pagedir, now_addr);
-    if (kaddr != NULL)
-      delete_upage_from_frame_table (kaddr, now_addr, cur);
+    delete_upage_from_frame_table (now_addr, cur);
     delete_from_supplemental_page_table (sp_table, now_addr);
     i += PGSIZE;
   }
@@ -460,8 +458,6 @@ munmap_handle (struct intr_frame *f UNUSED, int id)
   lock_release (&file_lock);
   list_remove (&mmap_elem->elem);
   free (mmap_elem);
- // clear_supplemental_page_table_mmap (&cur->sp_table, mmap_elem->addr, 
- //                                     (uint8_t *)mmap_elem->addr + mmap_elem->length);                            
 }
 
 void

@@ -12,11 +12,11 @@ struct block *block;
 static lock swap_lock;
 
 void
-swap_init (int n)
+swap_init ()
 {
     block = block_get_role (BLOCK_SWAP);
     lock_init(&swap_lock);
-    swap_map = bitmap_create (n * 256);
+    swap_map = bitmap_create (block_size (block) * 256);
 }
 
 void
@@ -26,6 +26,7 @@ set_pointer_to_spage (struct frame *f, size_t swap_idx)
     struct list_elem *e;
     struct upage_for_frame_table *upage_for_frame;
     struct spage *spage_temp;
+    check_frame_lock ();
     for (e = list_begin (upage_list); e != list_end (upage_list); e = list_next (e))
     {
         //may need spage lock
@@ -33,6 +34,7 @@ set_pointer_to_spage (struct frame *f, size_t swap_idx)
         spage_temp = supplemental_page_table_lookup (upage_for_frame->owner, 
                                                      upage_for_frame->upage);
         ASSERT (spage_temp != NULL)
+        spage_temp->read_file = NULL;
         spage_temp->where_to_read = swap_idx;
     }
 }
@@ -45,6 +47,7 @@ put_to_swap (struct frame *f)
   size_t swap_idx;
   uint8_t *kpage;
   size_t i;
+  check_frame_lock ();
   lock_acquire (&swap_lock);
   swap_idx = bitmap_scan_and_flip (swap_map, 0, 1, false);
   lock_release (&swap_lock);
@@ -63,13 +66,13 @@ put_to_swap (struct frame *f)
 }
 
 void
-load_from_swap (struct spage *spage)
+load_from_swap (struct spage *spage, struct frame *f)
 {
   uint32_t sector;
   size_t swap_idx = (uint32_t) spage->where_to_read;
   uint8_t *kpage;
   size_t i;
-
+  ASSERT (f->pin == true); //prevent eviction.
   ASSERT (spage->where_to_write >= 0);
   sector = 8 * swap_idx;
   kpage = f->kpage;
@@ -85,7 +88,11 @@ load_from_swap (struct spage *spage)
 }
 
 void
-clear_swap_table (int n)
+clear_swap_slot (int n)
 {
-
+  if (n<0)
+    return;
+  ASSERT (check_frame_lock ());
+  ASSERT (bitmap_all (swap_map, n, 1));
+  bitmap_set_multiple (swap_map, n, 1, false);
 }
