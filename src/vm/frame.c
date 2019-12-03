@@ -2,6 +2,7 @@
 #include <hash.h>
 #include <list.h>
 #include <string.h>
+#include <stdio.h>
 #include "threads/vaddr.h"
 #include "threads/thread.h"
 #include "threads/palloc.h"
@@ -149,6 +150,7 @@ insert_to_frame_table (enum palloc_flags flags, struct frame *frame)
     frame->kpage = palloc_get_page (flags);
     if (frame->kpage == NULL)
     {
+ //       printf("entered\n");
         if (do_eviction (frame) == NULL)
             PANIC ("Unable to allocate page");
         if (flags & PAL_ZERO)
@@ -404,19 +406,32 @@ find_victim ()
 //    static ; //for clock algorithm
     static struct hash_iterator iter;
     struct frame *target_f = NULL;
+    enum intr_level old_level;
+    int i = 0;
     ASSERT (lock_held_by_current_thread (&frame_lock));
-
+    
+    //It can be a infinite loop if every process set access bit to their frame in frequent context
+    //switch.
+    old_level = intr_disable ();
+    hash_first (&iter, &frame_table);
     while (hash_next (&iter))
     {
         target_f = hash_entry (hash_cur (&iter), struct frame, hash_elem);
-        if(!check_and_set_accesse_for_frame (target_f))
+        if(target_f->pin == false && !check_and_set_accesse_for_frame (target_f))
             break;
     }
     if(hash_cur (&iter) == NULL)
     {
-        //maybe there are element in front of clock...
-        return NULL;
+        i++;
+        hash_first (&iter, &frame_table);
+        while (hash_next (&iter))
+        {
+            target_f = hash_entry (hash_cur (&iter), struct frame, hash_elem);
+            if(target_f->pin == false && !check_and_set_accesse_for_frame (target_f))
+                break;
+        }
     }
+    intr_set_level (old_level);
     if(target_f == NULL)
     {
         return NULL;
@@ -431,15 +446,12 @@ do_eviction (struct frame* frame)
 {
     struct frame *target_f = NULL;
     void *kpage;
-    void *upage;
-    bool writable = true;
     ASSERT (lock_held_by_current_thread (&frame_lock));
 
     target_f = find_victim ();
     
     if (target_f == NULL) 
     {
-        lock_release(&frame_lock);
         return NULL;
     }
 
@@ -448,21 +460,8 @@ do_eviction (struct frame* frame)
     kpage = target_f->kpage;
     hash_delete(&frame_table, &target_f->hash_elem);
     free (target_f);
-
-
-    if (frame->write_to == CODE_F)
-        writable = false;
     
     ASSERT (list_size (&frame->upage_list) == 1);
-    upage = list_entry (list_begin (&frame->upage_list), 
-                        struct upage_for_frame_table, list_elem)->upage; 
-    
-    if (!install_page (thread_current(), upage, kpage, writable)) 
-    {
-        palloc_free_page (kpage);
-        lock_release(&frame_lock);
-        return NULL;
-    }
     
     frame->kpage = kpage;
     hash_insert (&frame_table, &frame->hash_elem);
@@ -564,7 +563,7 @@ clear_target_pte (struct frame *f)
 static bool
 install_page (struct thread *t, void *upage, void *kpage, bool writable)
 {
-//   printf("A\n");
+//   printf("A %p<-%p\n", upage, kpage);
   /* Verify that there's not already a page at that virtual
      address, then map our page there. */
   return (pagedir_get_page (t->pagedir, upage) == NULL

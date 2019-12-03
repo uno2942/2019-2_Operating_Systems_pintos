@@ -210,7 +210,7 @@ load_page_in_memory (struct file *file, off_t ofs, uint8_t *upage,
    
   ASSERT ((page_read_bytes + page_zero_bytes) % PGSIZE == 0);
   ASSERT (pg_ofs (upage) == 0);
-  ASSERT (ofs % PGSIZE == 0);
+//  ASSERT (ofs % PGSIZE == 0);
 
   uint8_t *kpage;
   struct spage *spage;
@@ -230,7 +230,7 @@ load_page_in_memory (struct file *file, off_t ofs, uint8_t *upage,
     PANIC ("palloc fail");
 
   kpage = frame->kpage;
-   printf("upage: %p, kpage: %p\n", upage, kpage);
+ //  printf("upage: %p, kpage: %p\n", upage, kpage);
   h_elem = supplemental_page_table_lookup (sp_table, upage);
   spage = hash_entry (h_elem, struct spage, hash_elem);
 
