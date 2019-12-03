@@ -225,19 +225,26 @@ load_page_in_memory (struct file *file, off_t ofs, uint8_t *upage,
                           file, ofs, page_read_bytes, NULL, upage, true);
   if(frame == NULL)
     PANIC ("malloc fail");
-  
   success = insert_to_frame_table (PAL_USER, frame);
   if(success == false)
     PANIC ("palloc fail");
 
   kpage = frame->kpage;
-    
+   printf("upage: %p, kpage: %p\n", upage, kpage);
   h_elem = supplemental_page_table_lookup (sp_table, upage);
   spage = hash_entry (h_elem, struct spage, hash_elem);
-  ASSERT (spage!=NULL && spage->read_file == file && spage->where_to_read == ofs 
-         && spage->read_size == page_read_bytes && spage->read_from == read_from); 
-  if (read_from == CODE_P || read_from == MMAP_P ||
-      (read_from == DATA_P && ofs >= 0) )
+
+   //in eviction, these can be changed.
+   file = spage->read_file;
+   ofs = spage->where_to_read;
+   read_from = spage->read_from;
+
+   frame->write_file = file;
+   frame->where_to_write = ofs;
+   frame->write_to = convert_read_from_to_write_to (read_from);
+
+  ASSERT (spage!=NULL && spage->read_size == page_read_bytes); 
+  if (read_from == CODE_P || read_from == MMAP_P || read_from == DATA_P)
    {
       /* Load this page. */
       file_lock_acquire ();
@@ -256,7 +263,6 @@ load_page_in_memory (struct file *file, off_t ofs, uint8_t *upage,
       
   pagedir_set_accessed (thread_current ()->pagedir, kpage, false);
   pagedir_set_dirty (thread_current ()->pagedir, kpage, false);
-  
   frame->pin = false;//need lock?
   return true;
 }

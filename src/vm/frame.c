@@ -35,7 +35,8 @@ enum write_to convert_read_from_to_write_to (enum read_from read_from)
     {
         case CODE_P: return CODE_F;
         case MMAP_P: return MMAP_F;
-        case DATA_P:
+        case DATA_P: return DATA_F;
+        case DATA_MOD_P:
         case STACK_P: return SWAP_F;
         default: ASSERT (0);
     }
@@ -183,6 +184,7 @@ insert_to_frame_table (enum palloc_flags flags, struct frame *frame)
         {
             case CODE_F: writable = false; break;
             case MMAP_F:
+            case DATA_F:
             case SWAP_F: writable = true; break;
             default: ASSERT (0);
         }
@@ -227,6 +229,8 @@ clear_frame (struct frame *frame, bool is_exit)
     enum intr_level old_level;
     
     //first, disconnect the connection to previous process.
+    //To prevent context switch, which can cause changes of contents in kpage,
+    //I put interrupt disable.
     old_level = intr_disable ();
     is_dirty = check_and_set_dirty_for_frame (frame);
     clear_target_pte (frame);
@@ -244,11 +248,18 @@ clear_frame (struct frame *frame, bool is_exit)
                 file_write (frame->write_file, frame->kpage, frame->write_size);
                 file_lock_release ();
                 break;
+            case DATA_F:
             case SWAP_F:
                 if (!is_exit)
                     put_to_swap (frame);
                 break;
+            default: ASSERT (0); break;
         }
+    }
+    else if (frame->write_to == SWAP_F)
+    {
+        if (!is_exit)
+            put_to_swap (frame);
     }
 
     while (list_size (upage_list) == 0)

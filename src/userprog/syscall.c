@@ -89,7 +89,7 @@ find_file(int fd)
        e = list_next (e))
     {
       fd_ = list_entry (e, struct file_descriptor, elem);
-      if(fd_->fd <= fd)
+      if(fd_->fd == fd)
         break;
     }
     if(fd_!=NULL && fd_->fd == fd)
@@ -316,7 +316,6 @@ close_handle (struct intr_frame *f, int fd)
   struct list_elem* e;
   tid_t owner = thread_current()->tid;
   //binary search can be applied.
-
   //find the corresponding file and close it. Set f->eax = 1 and return;
   lock_acquire(&file_lock);
   for (e = list_begin (&fd_list); e != list_end (&fd_list);
@@ -455,6 +454,7 @@ munmap_handle (struct intr_frame *f UNUSED, int id)
   lock_acquire (&file_lock);
   file_close (mmap_elem->file);
   lock_release (&file_lock);
+
   list_remove (&mmap_elem->elem);
   free (mmap_elem);
 }

@@ -11,7 +11,7 @@ static struct bitmap *swap_map;
 static struct block *block;
 static struct lock swap_lock;
 
-static void set_pointer_to_spage (struct frame *f, size_t swap_idx);
+static void set_pointer_to_spage (struct frame *f, int swap_idx);
 void
 swap_init ()
 {
@@ -21,7 +21,7 @@ swap_init ()
 }
 
 static void
-set_pointer_to_spage (struct frame *f, size_t swap_idx)
+set_pointer_to_spage (struct frame *f, int swap_idx)
 {
     struct list *upage_list = &f->upage_list;
     struct list_elem *e;
@@ -39,6 +39,8 @@ set_pointer_to_spage (struct frame *f, size_t swap_idx)
         spage_temp = hash_entry (h_elem, struct spage, hash_elem);
         spage_temp->read_file = NULL;
         spage_temp->where_to_read = swap_idx;
+        if (spage_temp->read_from == DATA_P)
+          spage_temp->read_from = DATA_MOD_P;
     }
 }
 
@@ -50,7 +52,7 @@ put_to_swap (struct frame *f)
   size_t swap_idx;
   uint8_t *kpage;
   size_t i;
-  check_frame_lock ();
+  ASSERT (check_frame_lock ());
   lock_acquire (&swap_lock);
   swap_idx = bitmap_scan_and_flip (swap_map, 0, 1, false);
   lock_release (&swap_lock);
