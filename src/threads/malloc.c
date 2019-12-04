@@ -118,7 +118,6 @@ malloc (size_t size)
       a->free_cnt = page_cnt;
       return a + 1;
     }
-
   lock_acquire (&d->lock);
 
   /* If the free list is empty, create a new arena. */

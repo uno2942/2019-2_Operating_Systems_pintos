@@ -76,6 +76,11 @@ file_lock_release(void)
   lock_release(&file_lock);
 }
 
+bool
+is_file_lock_held (void)
+{
+  return lock_held_by_current_thread (&file_lock);
+}
 //find file having fd value FD.
 struct file*
 find_file(int fd)
@@ -178,9 +183,11 @@ create_handle (struct intr_frame *f, const char *file, unsigned initial_size)
 {
   if(!check_user_addr(file))
     exit_handle(NULL, -1);
+  thread_current ()->allow_kernel_panic = true;
   lock_acquire(&file_lock);
   f->eax = filesys_create (file, initial_size);
   lock_release(&file_lock);
+  thread_current ()->allow_kernel_panic = false;
   
 }
 
@@ -189,9 +196,11 @@ remove_handle (struct intr_frame *f, const char *file)
 {
   if(!check_user_addr(file))
     exit_handle(NULL, -1);
+  thread_current ()->allow_kernel_panic = true;
   lock_acquire(&file_lock);
    f->eax = filesys_remove (file);
   lock_release(&file_lock);
+  thread_current ()->allow_kernel_panic = false;
 }
 
 void
@@ -199,9 +208,11 @@ open_handle (struct intr_frame *f, const char *file)
 {
   if(!check_user_addr(file))
     exit_handle(NULL, -1);
+  thread_current ()->allow_kernel_panic = true;
   lock_acquire(&file_lock);
   struct file* file_ = filesys_open (file);
   lock_release(&file_lock);
+  thread_current ()->allow_kernel_panic = false;
   if(file_==NULL)
     {
       f->eax = -1;
@@ -240,16 +251,16 @@ read_handle (struct intr_frame *f, int fd, void *buffer, unsigned size)
     {
       //is buffer valid
       //need to check from buffer to buffer+size
-    if(!check_user_addr(buffer))
+    if(!check_user_addr(buffer) && !is_writable (buffer, true))
       {
-        printf("%p\n", buffer);
-        printf("%p\n", (char *)buffer + size);
 //        printf("asdf\n");
         exit_handle(NULL, -1);
       }
+  thread_current ()->allow_kernel_panic = true;
     file_lock_acquire();
     f->eax = file_read (file, buffer, size);
     file_lock_release();
+  thread_current ()->allow_kernel_panic = false;
     return;
     }
   else if(fd==0)
@@ -269,10 +280,13 @@ write_handle (struct intr_frame *f, int fd, const void *buffer, unsigned size)
       //is buffer valid
     if(!check_user_addr(buffer))
       exit_handle(NULL, -1);
-      file_lock_acquire();
-      f->eax = file_write (file, buffer, size);
-      file_lock_release();
-      return;
+      
+  thread_current ()->allow_kernel_panic = true;
+    file_lock_acquire();
+    f->eax = file_write (file, buffer, size);
+    file_lock_release();
+  thread_current ()->allow_kernel_panic = false;
+    return;
     }
   else if(fd==1)
   {

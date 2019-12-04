@@ -2,10 +2,11 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <string.h>
+#include "threads/thread.h"
 #include "threads/init.h"
 #include "threads/pte.h"
 #include "threads/palloc.h"
-
+#include "vm/page.h"
 static uint32_t *active_pd (void);
 static void invalidate_pagedir (uint32_t *);
 
@@ -269,6 +270,8 @@ bool
 check_user_addr(const void *vaddr)
 {
   bool is_vaild_uaddr = true;
+  struct hash_elem *spage1;
+  struct hash_elem *spage2;
   /* check it is null pointer */
   if (vaddr == NULL)
   {
@@ -284,10 +287,12 @@ check_user_addr(const void *vaddr)
     }
     else
     {
+    //need stack check?
       /* check it is kernel address pointer 
          function from vaddr.h */
-      is_vaild_uaddr = !( pagedir_get_page (active_pd (),(char*)vaddr) == NULL
-    || pagedir_get_page (active_pd (),(char*)vaddr + 3) == NULL ) ;
+      spage1 = supplemental_page_table_lookup (&thread_current()->sp_table, pg_round_down (vaddr));
+      spage2 = supplemental_page_table_lookup (&thread_current()->sp_table, pg_round_down ((char*)vaddr + 3));
+      is_vaild_uaddr = !( spage1 == NULL || spage2 == NULL ) ;
     }
   }
 
@@ -297,6 +302,21 @@ check_user_addr(const void *vaddr)
     //  printf("trap\n");
     /* terminate process */
     return false;
+  }
+  return true;
+}
+
+bool
+is_writable (const void *vaddr, bool write)
+{
+  struct hash_elem *spage1 = supplemental_page_table_lookup (&thread_current()->sp_table, pg_round_down (vaddr));
+  struct hash_elem *spage2 = supplemental_page_table_lookup (&thread_current()->sp_table, pg_round_down ((char*)vaddr + 3));
+  ASSERT (spage1 != NULL && spage2 != NULL);
+  if (write)
+  {
+    if (hash_entry (spage1, struct spage, hash_elem)->read_from == CODE_P || 
+        hash_entry (spage2, struct spage, hash_elem)->read_from == CODE_P)
+      return false;
   }
   return true;
 }

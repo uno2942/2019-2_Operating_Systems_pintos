@@ -39,7 +39,8 @@ supplemental_page_table_lookup (struct hash* sp_table, void *upage)
 {
   struct spage p;
   struct hash_elem *e;
-  ASSERT (upage != NULL);
+  if (upage == NULL)
+    return NULL;
   p.upage = upage;
   e = hash_find (sp_table, &p.hash_elem);
   return e;

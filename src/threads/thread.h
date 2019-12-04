@@ -107,6 +107,7 @@ struct thread
     struct file* file;
     bool is_user;
     struct hash sp_table;
+    bool allow_kernel_panic;
     int mmap_t_allocator;
     struct list mmap_list;
 #endif

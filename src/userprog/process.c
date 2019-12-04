@@ -408,7 +408,7 @@ load (const char *file_name, void (**eip) (void), void **esp)
   if (t->pagedir == NULL) 
     goto done;
   supplemental_page_table_init (&t->sp_table);
-
+  t->allow_kernel_panic = false;
   process_activate ();
 
   /* Open executable file. */

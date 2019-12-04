@@ -164,7 +164,7 @@ page_fault (struct intr_frame *f)
   write = (f->error_code & PF_W) != 0;
   user = (f->error_code & PF_U) != 0;
   
-  if(user == true)
+  if( (not_present && user == true) || (not_present && !user && thread_current ()->allow_kernel_panic))
    {
       struct hash* sp_table = &thread_current()->sp_table;
       struct hash_elem *h_elem = supplemental_page_table_lookup (sp_table, pg_round_down (fault_addr));
@@ -251,6 +251,7 @@ load_page_in_memory (struct file *file, off_t ofs, uint8_t *upage,
   struct hash *sp_table = &thread_current ()->sp_table;
   /* Get a page of memory. */
   bool success;
+  bool f_lock_held = false;
   
   //I need to consider the case: while doing eviction and putting on swap table
   //the victim page tries to load by this function.
@@ -280,10 +281,15 @@ load_page_in_memory (struct file *file, off_t ofs, uint8_t *upage,
   if (read_from == CODE_P || read_from == MMAP_P || read_from == DATA_P)
    {
       /* Load this page. */
-      file_lock_acquire ();
+      if (is_file_lock_held)
+         f_lock_held = true;
+      if (!f_lock_held)
+         file_lock_acquire ();
       file_seek (file, ofs);
       success = (file_read (file, kpage, page_read_bytes) == (int) page_read_bytes);
-      file_lock_release ();
+      
+      if (!is_file_lock_held)
+         file_lock_release ();
       if (success == false)
       {
          delete_upage_from_frame_and_swap_table (upage, thread_current ());
