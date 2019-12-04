@@ -108,6 +108,7 @@ struct thread
     bool is_user;
     struct hash sp_table;
     bool allow_kernel_panic;
+    void *esp_temp;
     int mmap_t_allocator;
     struct list mmap_list;
 #endif

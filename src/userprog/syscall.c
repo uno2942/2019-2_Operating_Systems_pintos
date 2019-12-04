@@ -158,7 +158,7 @@ exit_handle (struct intr_frame *f UNUSED, int status)
 void
 exec_handle (struct intr_frame *f, const char *file)
 {
-  if(!check_user_addr(file))
+  if(!check_user_addr(file, f->esp, false))
     exit_handle(NULL, -1);
   f->eax = (uint32_t)process_execute(file);
   return;
@@ -181,12 +181,14 @@ wait_handle (struct intr_frame *f, tid_t pid)
 void
 create_handle (struct intr_frame *f, const char *file, unsigned initial_size)
 {
-  if(!check_user_addr(file))
+  if(!check_user_addr(file, f->esp, false))
     exit_handle(NULL, -1);
   thread_current ()->allow_kernel_panic = true;
+  thread_current ()->esp_temp = f->esp;
   lock_acquire(&file_lock);
   f->eax = filesys_create (file, initial_size);
   lock_release(&file_lock);
+  thread_current ()->esp_temp = NULL;
   thread_current ()->allow_kernel_panic = false;
   
 }
@@ -194,24 +196,28 @@ create_handle (struct intr_frame *f, const char *file, unsigned initial_size)
 void
 remove_handle (struct intr_frame *f, const char *file)
 {
-  if(!check_user_addr(file))
+  if(!check_user_addr(file, f->esp, false))
     exit_handle(NULL, -1);
   thread_current ()->allow_kernel_panic = true;
+  thread_current ()->esp_temp = f->esp;
   lock_acquire(&file_lock);
    f->eax = filesys_remove (file);
   lock_release(&file_lock);
+  thread_current ()->esp_temp = NULL;
   thread_current ()->allow_kernel_panic = false;
 }
 
 void
 open_handle (struct intr_frame *f, const char *file)
 {
-  if(!check_user_addr(file))
+  if(!check_user_addr(file, f->esp, false))
     exit_handle(NULL, -1);
   thread_current ()->allow_kernel_panic = true;
+  thread_current ()->esp_temp = f->esp;
   lock_acquire(&file_lock);
   struct file* file_ = filesys_open (file);
   lock_release(&file_lock);
+  thread_current ()->esp_temp = NULL;
   thread_current ()->allow_kernel_panic = false;
   if(file_==NULL)
     {
@@ -251,15 +257,17 @@ read_handle (struct intr_frame *f, int fd, void *buffer, unsigned size)
     {
       //is buffer valid
       //need to check from buffer to buffer+size
-    if(!check_user_addr(buffer) && !is_writable (buffer, true))
+    if(!check_user_addr(buffer, f->esp, true))
       {
 //        printf("asdf\n");
         exit_handle(NULL, -1);
       }
   thread_current ()->allow_kernel_panic = true;
+  thread_current ()->esp_temp = f->esp;
     file_lock_acquire();
     f->eax = file_read (file, buffer, size);
     file_lock_release();
+  thread_current ()->esp_temp = NULL;
   thread_current ()->allow_kernel_panic = false;
     return;
     }
@@ -278,13 +286,15 @@ write_handle (struct intr_frame *f, int fd, const void *buffer, unsigned size)
   if(file!=NULL)
     {
       //is buffer valid
-    if(!check_user_addr(buffer))
+    if(!check_user_addr(buffer, f->esp, false))
       exit_handle(NULL, -1);
       
   thread_current ()->allow_kernel_panic = true;
+  thread_current ()->esp_temp = f->esp;
     file_lock_acquire();
     f->eax = file_write (file, buffer, size);
     file_lock_release();
+  thread_current ()->esp_temp = NULL;
   thread_current ()->allow_kernel_panic = false;
     return;
     }
@@ -519,7 +529,7 @@ syscall_handler (struct intr_frame *f)
   int arg0;
   int arg1;
   int arg2; 
-  if(!check_user_addr(f->esp))
+  if(!check_user_addr(f->esp, f->esp, false))
     exit_handle(NULL, -1);
   c = *((int*)(f->esp));
   switch(c){
@@ -536,7 +546,7 @@ syscall_handler (struct intr_frame *f)
     case SYS_CLOSE: 
     case SYS_MUNMAP:
 
-    if(!check_user_addr((int*)(f->esp)+1))
+    if(!check_user_addr((int*)(f->esp)+1, f->esp, false))
       exit_handle(NULL, -1);
 
     arg0 = *((int*)(f->esp)+1);
@@ -559,7 +569,7 @@ syscall_handler (struct intr_frame *f)
     case SYS_CREATE: 
     case SYS_SEEK:
     case SYS_MMAP:
-    if((!check_user_addr((int*)(f->esp)+1)) || (!check_user_addr((int*)(f->esp)+2)))
+    if((!check_user_addr((int*)(f->esp)+1, f->esp, false)) || (!check_user_addr((int*)(f->esp)+2, f->esp, false)))
       exit_handle(NULL, -1);
 
     arg0 = *((int*)(f->esp)+1);
@@ -575,8 +585,8 @@ syscall_handler (struct intr_frame *f)
     case SYS_READ: 
     case SYS_WRITE: 
 
-    if((!check_user_addr((int*)(f->esp)+1)) || (!check_user_addr((int*)(f->esp)+2))
-        || (!check_user_addr((int*)(f->esp)+3)))
+    if((!check_user_addr((int*)(f->esp)+1, f->esp, false)) || (!check_user_addr((int*)(f->esp)+2, f->esp, false))
+        || (!check_user_addr((int*)(f->esp)+3, f->esp, false)))
       exit_handle(NULL, -1);
 
     arg0 = *((int*)(f->esp)+1);

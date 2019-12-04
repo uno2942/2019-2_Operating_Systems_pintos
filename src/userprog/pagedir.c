@@ -267,7 +267,7 @@ invalidate_pagedir (uint32_t *pd)
 /* check given pointer is vaild user address`s
    if invalid, release all resource & terminate process */
 bool
-check_user_addr(const void *vaddr)
+check_user_addr(const void *vaddr, void *esp, bool write)
 {
   bool is_vaild_uaddr = true;
   struct hash_elem *spage1;
@@ -293,6 +293,20 @@ check_user_addr(const void *vaddr)
       spage1 = supplemental_page_table_lookup (&thread_current()->sp_table, pg_round_down (vaddr));
       spage2 = supplemental_page_table_lookup (&thread_current()->sp_table, pg_round_down ((char*)vaddr + 3));
       is_vaild_uaddr = !( spage1 == NULL || spage2 == NULL ) ;
+      if (!is_vaild_uaddr)
+      {
+        if (vaddr >= esp && (uint32_t)vaddr >= (0xc0000000 - 0x800000))
+          is_vaild_uaddr = true;
+      }
+      else
+      {
+        if (write)
+        {
+          if (hash_entry (spage1, struct spage, hash_elem)->read_from == CODE_P || 
+              hash_entry (spage2, struct spage, hash_elem)->read_from == CODE_P)
+            return false;
+        }
+      }
     }
   }
 
@@ -302,21 +316,6 @@ check_user_addr(const void *vaddr)
     //  printf("trap\n");
     /* terminate process */
     return false;
-  }
-  return true;
-}
-
-bool
-is_writable (const void *vaddr, bool write)
-{
-  struct hash_elem *spage1 = supplemental_page_table_lookup (&thread_current()->sp_table, pg_round_down (vaddr));
-  struct hash_elem *spage2 = supplemental_page_table_lookup (&thread_current()->sp_table, pg_round_down ((char*)vaddr + 3));
-  ASSERT (spage1 != NULL && spage2 != NULL);
-  if (write)
-  {
-    if (hash_entry (spage1, struct spage, hash_elem)->read_from == CODE_P || 
-        hash_entry (spage2, struct spage, hash_elem)->read_from == CODE_P)
-      return false;
   }
   return true;
 }

@@ -173,7 +173,14 @@ page_fault (struct intr_frame *f)
       {
 //        printf("now address want to access : %x , stack pointer when interrupt occur : %x\n", (unsigned int)fault_addr, (unsigned int)(f->esp));
         
-        distance_from_stack_top = (int)(f->esp) - (int)fault_addr;
+        //is it right????
+
+
+
+        if (thread_current ()->allow_kernel_panic)
+            distance_from_stack_top = (int)(thread_current ()->esp_temp) - (int)fault_addr;
+        else
+            distance_from_stack_top = (int)(f->esp) - (int)fault_addr;
         if((unsigned int)fault_addr < STACK_GROW_LIMIT)
         {
           //touch heap range : segfault
@@ -281,14 +288,14 @@ load_page_in_memory (struct file *file, off_t ofs, uint8_t *upage,
   if (read_from == CODE_P || read_from == MMAP_P || read_from == DATA_P)
    {
       /* Load this page. */
-      if (is_file_lock_held)
+      if (is_file_lock_held ())
          f_lock_held = true;
       if (!f_lock_held)
          file_lock_acquire ();
       file_seek (file, ofs);
       success = (file_read (file, kpage, page_read_bytes) == (int) page_read_bytes);
       
-      if (!is_file_lock_held)
+      if (!f_lock_held)
          file_lock_release ();
       if (success == false)
       {
