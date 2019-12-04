@@ -681,7 +681,7 @@ setup_stack (void **esp)
     
     *esp = PHYS_BASE;
 
-    printf("** inital stack allocated position : %x\n", (uint32_t)(((uint8_t *) PHYS_BASE) - PGSIZE));
+//    printf("** inital stack allocated position : %x\n", (uint32_t)(((uint8_t *) PHYS_BASE) - PGSIZE));
 
     return success;
 }

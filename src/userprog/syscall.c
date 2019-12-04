@@ -242,6 +242,8 @@ read_handle (struct intr_frame *f, int fd, void *buffer, unsigned size)
       //need to check from buffer to buffer+size
     if(!check_user_addr(buffer))
       {
+        printf("%p\n", buffer);
+        printf("%p\n", (char *)buffer + size);
 //        printf("asdf\n");
         exit_handle(NULL, -1);
       }
@@ -365,13 +367,19 @@ mmap_handle (struct intr_frame *f, int fd, void *addr)
   struct file* file = find_file(fd);
   struct file* mmap_file;
   off_t length;
+
+  //check user addr
+  
+  if(file == NULL || file_length (file) == 0 || pg_ofs (addr) != 0
+   || addr == NULL || !is_user_vaddr (addr))
+  {
+      f->eax = -1;
+      return;
+  }
   lock_acquire(&file_lock);
   mmap_file = file_reopen (file);
   length = file_length (mmap_file);
   lock_release(&file_lock);
-
-
-  //check address and properties.
 
   if(load_mmap (mmap_file, 0, addr, length, ROUND_UP (length, PGSIZE)-length))
   {
@@ -384,7 +392,12 @@ mmap_handle (struct intr_frame *f, int fd, void *addr)
     f->eax = mmap_elem->id;
   }
   else
-    f->eax = -1;
+    {
+      lock_acquire(&file_lock);
+      file_close (mmap_file);
+      lock_release(&file_lock);
+      f->eax = -1;
+    }
   
 }
 
@@ -399,7 +412,7 @@ load_mmap (struct file *file, off_t ofs, uint8_t *upage,
   
   struct hash* sp_table = &thread_current()->sp_table;
   struct hash_elem* h_elem;
-  
+  int upage_0 = (int)upage;
   while (read_bytes > 0 || zero_bytes > 0) 
     {
       /* Calculate how to fill this page.
@@ -410,7 +423,16 @@ load_mmap (struct file *file, off_t ofs, uint8_t *upage,
 
       h_elem = supplemental_page_table_lookup (sp_table, upage);
     
-      ASSERT (h_elem == NULL);
+      if (h_elem != NULL)
+      {
+          while (upage_0 < (int)upage)
+          {
+            delete_from_supplemental_page_table (sp_table, (void *)upage_0);
+            upage_0 += PGSIZE;
+          }
+          return false;
+      }
+
       struct spage *spage_temp = (struct spage *)malloc (sizeof (struct spage));
       ASSERT (spage_temp != NULL)
       /*if (spage_temp == NULL)
@@ -439,6 +461,8 @@ void
 munmap_handle (struct intr_frame *f UNUSED, int id)
 {
   struct mmap_elem *mmap_elem = find_mmap_elem (id);
+  if (mmap_elem == NULL)
+    return;
   struct thread *cur = thread_current ();
   struct hash* sp_table = &cur->sp_table;
   uint8_t *start_addr = mmap_elem->addr;
