@@ -276,10 +276,17 @@ load_page_in_memory (struct file *file, off_t ofs, uint8_t *upage,
   bool f_lock_held = false;
   
 
+   if (is_file_lock_held ())
+      f_lock_held = true;
   struct frame *frame = make_frame (convert_read_from_to_write_to (read_from),
                           file, ofs, page_read_bytes, NULL, upage, true);
   if(frame == NULL)
     PANIC ("malloc fail");
+
+
+   if (f_lock_held)
+      file_lock_release ();
+
   //palloc (if fail, eviction) + insert frame to table.
   //since frame->pin == true, it is not evicted after this function.
   //It need to hold pin while it completely prepare to give frame.
@@ -306,15 +313,10 @@ load_page_in_memory (struct file *file, off_t ofs, uint8_t *upage,
   if (read_from == CODE_P || read_from == MMAP_P || read_from == DATA_P)
    {
       /* Load this page. */
-      if (is_file_lock_held ())
-         f_lock_held = true;
-      if (!f_lock_held)
          file_lock_acquire ();
       //Since the data does not changed while the eviction occurs, just load file.
       file_seek (file, ofs);
       success = (file_read (file, kpage, page_read_bytes) == (int) page_read_bytes);
-      
-      if (!f_lock_held)
          file_lock_release ();
       if (success == false)
       {
@@ -329,9 +331,11 @@ load_page_in_memory (struct file *file, off_t ofs, uint8_t *upage,
       //Since the data is modified from the one in file, it should in swap.
       load_from_swap (spage, frame);
       
-  pagedir_set_accessed (thread_current ()->pagedir, kpage, false);
+  pagedir_set_accessed (thread_current ()->pagedir, kpage, true);
   pagedir_set_dirty (thread_current ()->pagedir, kpage, false);
   frame->pin = false;//need lock?
+   if (f_lock_held)
+    file_lock_acquire ();
   return true;
 }
 
