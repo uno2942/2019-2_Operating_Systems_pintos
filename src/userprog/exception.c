@@ -347,6 +347,7 @@ stack_page_install(void *fault_addr)
     bool success = false;
     struct hash* sp_table = &thread_current()->sp_table;
 
+    bool file_lock = false;
     //frame part
     struct frame* frame = make_frame (SWAP_F, NULL, -1, PGSIZE, NULL, pg_round_down (fault_addr), false);
 
@@ -354,6 +355,11 @@ stack_page_install(void *fault_addr)
     {
       return false;
     }
+    
+    if (is_file_lock_held ())
+      file_lock = true;
+    if(file_lock)
+      file_lock_release ();
 
     //note that it can be evicted after this function.
     //I did not pin it since it does not requires no load from file or swap.
@@ -363,6 +369,8 @@ stack_page_install(void *fault_addr)
     if (success == false)
     {
       free (frame);
+    if(file_lock)
+      file_lock_acquire ();
       return false;
     }
 
@@ -374,6 +382,9 @@ stack_page_install(void *fault_addr)
     {
       //roll-back
       delete_upage_from_frame_and_swap_table (pg_round_down (fault_addr), thread_current());
+      
+    if(file_lock)
+      file_lock_acquire ();
       return false;
     }
     spage_temp->read_from = STACK_P;
@@ -386,5 +397,7 @@ stack_page_install(void *fault_addr)
 
 //    printf("** additional stack allocated position : %x\n", pg_round_down (fault_addr));
 
+    if(file_lock)
+      file_lock_acquire ();
   return success;
 }

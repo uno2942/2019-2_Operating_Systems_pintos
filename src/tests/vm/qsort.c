@@ -24,11 +24,9 @@ is_partitioned (const unsigned char *array, size_t size,
   for (i = 0; i < left_size; i++)
     if (array[i] >= pivot)
       return false;
-
   for (; i < size; i++)
     if (array[i] < pivot)
       return false;
-
   return true;
 }
 
@@ -64,7 +62,6 @@ partition (unsigned char *array, size_t size, int pivot)
             }
           else if (*first >= pivot)
             break;
-
           first++;
         }
       left_size--;
@@ -74,7 +71,6 @@ partition (unsigned char *array, size_t size, int pivot)
       for (;;)
         {
           last--;
-
           if (first == last)
             {
               ASSERT (is_partitioned (array, size, pivot, left_size));
@@ -85,7 +81,6 @@ partition (unsigned char *array, size_t size, int pivot)
           else
             left_size--;
         }
-
       /* By swapping FIRST and LAST we extend the starting and
          ending sequences that pass and fail, respectively,
          PREDICATE. */
@@ -116,7 +111,6 @@ qsort_bytes (unsigned char *buf, size_t size)
   if (!is_sorted (buf, size)) 
     {
       int pivot = pick_pivot (buf, size);
-
       unsigned char *left_half = buf;
       size_t left_size = partition (buf, size, pivot);
       unsigned char *right_half = left_half + left_size;

@@ -640,6 +640,7 @@ static bool
 setup_stack (void **esp) 
 {
     bool success = false;
+    bool file_lock = false;
     struct hash* sp_table = &thread_current()->sp_table;
 
     //frame part
@@ -649,12 +650,19 @@ setup_stack (void **esp)
     {
       return false;
     }
+    
+    if (is_file_lock_held ())
+      file_lock = true;
+    if(file_lock)
+      file_lock_release ();
 
     success = insert_to_frame_table (PAL_USER | PAL_ZERO, frame);
   
     if (success == false)
     {
       free (frame);
+    if(file_lock)
+      file_lock_acquire ();
       return false;
     }
 
@@ -665,6 +673,9 @@ setup_stack (void **esp)
     {
       //roll-back
       delete_upage_from_frame_and_swap_table (((uint8_t *) PHYS_BASE) - PGSIZE, thread_current());
+      
+    if(file_lock)
+      file_lock_acquire ();
       return false;
     }
     spage_temp->read_from = STACK_P;
@@ -679,6 +690,8 @@ setup_stack (void **esp)
 
 //    printf("** inital stack allocated position : %x\n", (uint32_t)(((uint8_t *) PHYS_BASE) - PGSIZE));
 
+    if(file_lock)
+      file_lock_acquire ();
     return success;
 }
 
