@@ -7,6 +7,7 @@
 
 #define PAGE_RATIO_PER_SWAP 256
 
+//Like palloc, maintain free swap slots using bitmap.
 static struct bitmap *swap_map;
 static struct block *block;
 static struct lock swap_lock;
@@ -20,6 +21,9 @@ swap_init ()
     swap_map = bitmap_create (block_size (block) * 256);
 }
 
+//After modifing swap block, spage should know where to load it in the case of installing page
+//before and after eviction.
+//If swap_idx < 0, then it is not in swap slot.
 static void
 set_pointer_to_spage (struct frame *f, int swap_idx)
 {
@@ -28,7 +32,7 @@ set_pointer_to_spage (struct frame *f, int swap_idx)
     struct upage_for_frame_table *upage_for_frame;
     struct hash_elem *h_elem;
     struct spage *spage_temp;
-    check_frame_lock ();
+    //for each spage, set the read_file == NULL and where_to_read = swap_idx;
     for (e = list_begin (upage_list); e != list_end (upage_list); e = list_next (e))
     {
         //may need spage lock
@@ -39,12 +43,15 @@ set_pointer_to_spage (struct frame *f, int swap_idx)
         spage_temp = hash_entry (h_elem, struct spage, hash_elem);
         spage_temp->read_file = NULL;
         spage_temp->where_to_read = swap_idx;
+        //if it was DATA, then it should be transferred to DATA_MOD_P since the data was modified and
+        //endtered to this function. (Note that in frame.c, check dirty bit and in the case of dirty)
+        //it calls put_to_swap.)
         if (spage_temp->read_from == DATA_P)
           spage_temp->read_from = DATA_MOD_P;
     }
 }
 
-
+//put the data of frame into swap.
 size_t
 put_to_swap (struct frame *f)
 {
@@ -70,6 +77,7 @@ put_to_swap (struct frame *f)
   return swap_idx;
 }
 
+//load data from swap and put to f->kpage.
 void
 load_from_swap (struct spage *spage, struct frame *f)
 {
@@ -92,6 +100,7 @@ load_from_swap (struct spage *spage, struct frame *f)
   bitmap_set_multiple (swap_map, swap_idx, 1, false);
 }
 
+//Clear swap slot by deleting nth swap slot from bitmap.
 void
 clear_swap_slot (int n)
 {

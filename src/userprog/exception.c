@@ -156,6 +156,11 @@ page_fault (struct intr_frame *f)
   /* Turn interrupts back on (they were only off so that we could
      be assured of reading CR2 before it changed). */
   intr_enable ();
+
+  //Since intr is on, there can be context switch, but since this process is 
+  //stopped by this interrupt, there is no error without eviction.
+  //Also, eviction algorithm does not contaminate this process since
+  //the fault address does not have frame and the allocated page is not in use.
   
   page_fault_cnt++;
 
@@ -164,6 +169,10 @@ page_fault (struct intr_frame *f)
   write = (f->error_code & PF_W) != 0;
   user = (f->error_code & PF_U) != 0;
   
+  //Only deal with the case of not_present
+  //If USER == true, then check carefully. If USER == false, then it should be
+  //triggered in syscall. Therefore, check whether it is occurred in syscall.
+
   if( (not_present && user == true) || (not_present && !user && thread_current ()->allow_kernel_panic))
    {
       struct hash* sp_table = &thread_current()->sp_table;
@@ -176,11 +185,12 @@ page_fault (struct intr_frame *f)
         //is it right????
 
 
-
+        //if it is triggered in syscall, load stack position at the intr frame.
         if (thread_current ()->allow_kernel_panic)
             distance_from_stack_top = (int)(thread_current ()->esp_temp) - (int)fault_addr;
         else
             distance_from_stack_top = (int)(f->esp) - (int)fault_addr;
+        //fault addr should above STACK_GROW_LIMIT
         if((unsigned int)fault_addr < STACK_GROW_LIMIT)
         {
           //touch heap range : segfault
@@ -190,6 +200,8 @@ page_fault (struct intr_frame *f)
         {
           //normal stack range : which is replaced - need to call back from swap table
         } */
+
+        //Not triggered by pusha or push
         else if(distance_from_stack_top > 32)
         {
           //need to handle case : not move esp itself. just access under the esp
@@ -202,12 +214,15 @@ page_fault (struct intr_frame *f)
 //          printf("page fault but we can stack growth\n");
 
           //success -> return true  
+          //now install the stack page.
           if(stack_page_install(fault_addr) == false)
             goto real_fault;
           else
             return;
         }
       }
+      //From now on, it is the frame process think it should have.
+      //Therefore, I should load it on memory.
       struct spage* spage = hash_entry (h_elem, struct spage, hash_elem);
       if(not_present)
       {
@@ -260,18 +275,21 @@ load_page_in_memory (struct file *file, off_t ofs, uint8_t *upage,
   bool success;
   bool f_lock_held = false;
   
-  //I need to consider the case: while doing eviction and putting on swap table
-  //the victim page tries to load by this function.
+
   struct frame *frame = make_frame (convert_read_from_to_write_to (read_from),
                           file, ofs, page_read_bytes, NULL, upage, true);
   if(frame == NULL)
     PANIC ("malloc fail");
+  //palloc (if fail, eviction) + insert frame to table.
+  //since frame->pin == true, it is not evicted after this function.
+  //It need to hold pin while it completely prepare to give frame.
   success = insert_to_frame_table (PAL_USER, frame);
   if(success == false)
     PANIC ("palloc fail");
 
   kpage = frame->kpage;
- //  printf("upage: %p, kpage: %p\n", upage, kpage);
+
+  //Since it allocates a frame which should be there, h_elem != NULL
   h_elem = supplemental_page_table_lookup (sp_table, upage);
   spage = hash_entry (h_elem, struct spage, hash_elem);
 
@@ -292,6 +310,7 @@ load_page_in_memory (struct file *file, off_t ofs, uint8_t *upage,
          f_lock_held = true;
       if (!f_lock_held)
          file_lock_acquire ();
+      //Since the data does not changed while the eviction occurs, just load file.
       file_seek (file, ofs);
       success = (file_read (file, kpage, page_read_bytes) == (int) page_read_bytes);
       
@@ -299,12 +318,15 @@ load_page_in_memory (struct file *file, off_t ofs, uint8_t *upage,
          file_lock_release ();
       if (success == false)
       {
+         //if read fails, delete frame and goto real_fault.
          delete_upage_from_frame_and_swap_table (upage, thread_current ());
          return false;
       }
+      //After reading file, the end bytes are set to 0.
       memset (kpage + page_read_bytes, 0, page_zero_bytes);
    }
    else
+      //Since the data is modified from the one in file, it should in swap.
       load_from_swap (spage, frame);
       
   pagedir_set_accessed (thread_current ()->pagedir, kpage, false);
@@ -329,6 +351,9 @@ stack_page_install(void *fault_addr)
       return false;
     }
 
+    //note that it can be evicted after this function.
+    //I did not pin it since it does not requires no load from file or swap.
+    //However, the eivction should occurs after this function finishes.
     success = insert_to_frame_table (PAL_USER | PAL_ZERO, frame);
   
     if (success == false)
@@ -338,6 +363,7 @@ stack_page_install(void *fault_addr)
     }
 
     //spage part
+    //Even if the frame is evicted, the process should know that the page is allocated.
     struct spage *spage_temp = (struct spage *)malloc (sizeof (struct spage));
     
     if (spage_temp == NULL)

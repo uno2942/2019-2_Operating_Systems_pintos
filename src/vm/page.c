@@ -34,6 +34,7 @@ supplemental_page_table_init (struct hash* sp_table)
     hash_init (sp_table, spage_hash, spage_less, NULL);
 }
 
+//check whether the page is preserved.
 struct hash_elem *
 supplemental_page_table_lookup (struct hash* sp_table, void *upage)
 {
@@ -46,6 +47,7 @@ supplemental_page_table_lookup (struct hash* sp_table, void *upage)
   return e;
 }
 
+//preserve the page
 void
 insert_to_supplemental_page_table (struct hash* sp_table, struct spage* spage)
 {
@@ -54,6 +56,7 @@ insert_to_supplemental_page_table (struct hash* sp_table, struct spage* spage)
     hash_insert (sp_table, &spage->hash_elem);
 }
 
+//free the page in the view of process.
 void delete_from_supplemental_page_table (struct hash* sp_table, void *upage)
 {
     struct hash_elem *h_elem;
@@ -66,6 +69,7 @@ void delete_from_supplemental_page_table (struct hash* sp_table, void *upage)
     free(spage_temp);
 }
 
+//clear_supplemental_page_table aux function.
 void free_spage_element (struct hash_elem *h_elem, void *aux UNUSED)
 {
     struct spage *spage_temp = hash_entry (h_elem, struct spage, hash_elem);

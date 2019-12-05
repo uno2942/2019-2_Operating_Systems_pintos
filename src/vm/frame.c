@@ -71,7 +71,9 @@ find_elem_in_upage_list (struct list *upage_list, void *upage, struct thread* ow
       e = list_next (e))
       {
           upage_temp = list_entry (e, struct upage_for_frame_table, list_elem);
-          if(upage_temp->upage == upage && upage_temp->owner == owner) //is it correct?
+          //even though upage is same, it can have different owner.
+          //Also, owner address is valid since it is in kernel pool.
+          if(upage_temp->upage == upage && upage_temp->owner == owner)
           {
               return e;
           }
@@ -86,6 +88,7 @@ frame_table_init (void)
     lock_init(&frame_lock);
 }
 
+//Find a frame element for kpage.
 static struct frame *
 frame_table_lookup (void *kpage)
 {
@@ -100,6 +103,7 @@ frame_table_lookup (void *kpage)
   return hash_entry (e, struct frame, hash_elem);
 }
 
+//ONLY make frame using the inputs.
 struct frame*
 make_frame (enum write_to write_to,
             struct file *write_file,
@@ -137,7 +141,7 @@ make_frame (enum write_to write_to,
 
 
 //Allocate new kpage, (now, sharing is unable) and put it to FRAMAE->kpage
-//does not free FRAMAE.
+//does not free FRAME.
 bool
 insert_to_frame_table (enum palloc_flags flags, struct frame *frame)
 {
@@ -146,13 +150,14 @@ insert_to_frame_table (enum palloc_flags flags, struct frame *frame)
     struct list_elem* e;
     bool writable;
     lock_acquire(&frame_lock);
-
+    //try to palloc.
     frame->kpage = palloc_get_page (flags);
+    //it palloc fails, try to do eviction.
     if (frame->kpage == NULL)
     {
- //       printf("entered\n");
         if (do_eviction (frame) == NULL)
             PANIC ("Unable to allocate page");
+        //if eviction succeed, then do the PAL_ZERO flag.
         if (flags & PAL_ZERO)
             memset (frame->kpage, 0, PGSIZE);
     }
@@ -175,6 +180,8 @@ insert_to_frame_table (enum palloc_flags flags, struct frame *frame)
     {*/
     
 //    }
+
+//From now, kpage is allocated. We need to connect it to frame and upage in upage_list
     ASSERT (list_size (&frame->upage_list) > 0);
     
 
@@ -190,8 +197,10 @@ insert_to_frame_table (enum palloc_flags flags, struct frame *frame)
             case SWAP_F: writable = true; break;
             default: ASSERT (0);
         }
-        /* Add the page to the process's address space. */
+        /* Add the kpage to the process's pte. */
         success = success && install_page (upage_temp->owner, upage_temp->upage, frame->kpage, writable);
+        //if it was not able to make connection, free kpage and return false, which will trigger
+        //kernel panic.
         if (success == false)
         {
             palloc_free_page (frame->kpage);
@@ -238,7 +247,7 @@ clear_frame (struct frame *frame, bool is_exit)
     clear_target_pte (frame);
     intr_set_level (old_level);
 
-    //if it is dirty, do something.
+    //if it is dirty, do back-up.
     if (is_dirty)
     {
         switch (frame->write_to)
@@ -258,12 +267,16 @@ clear_frame (struct frame *frame, bool is_exit)
             default: ASSERT (0); break;
         }
     }
+    //even though it is not dirty, if the process do not exit, then the previously modified data
+    //should be written back to swap.
     else if (frame->write_to == SWAP_F)
     {
         if (!is_exit)
             put_to_swap (frame);
     }
+    //else -> just left it. We don't have to do anything.
 
+    //clear upage_list.
     while (list_size (upage_list) == 0)
     {
         l_elem = list_pop_front (upage_list);
@@ -272,6 +285,7 @@ clear_frame (struct frame *frame, bool is_exit)
     }
 }
 
+//clear frame and also delete the frame. (Called for process exit.)
 static void
 free_frame (struct frame *frame)
 {   
@@ -283,7 +297,11 @@ free_frame (struct frame *frame)
     free(frame);
 }
 
-//maybe not deleted if it is evicted.
+//There are three cases when this function is called and after lock
+//1: If upage didn't get any kpage at previous: do nothing.
+//2: If upage got a kpage at previous time, but it is evicted, so it is not have page now
+//   Then it should check whether it's data is in swap. If it is in swap, delete swap.
+//3: If upage have a kpage now: it should not in swap since it is not evicted. Delete kpage.
 bool
 delete_upage_from_frame_and_swap_table (void *upage, struct thread* owner)
 {
@@ -306,6 +324,7 @@ delete_upage_from_frame_and_swap_table (void *upage, struct thread* owner)
         struct spage *spage_temp = hash_entry (h_elem, struct spage, hash_elem);
         if (convert_read_from_to_write_to (spage_temp->read_from) == SWAP_F)
         {
+            //maybe where_to_read == -1, but int hat case, the function immediately return;
             clear_swap_slot (spage_temp->where_to_read);
             spage_temp->where_to_read = -1;
         }
@@ -318,6 +337,7 @@ delete_upage_from_frame_and_swap_table (void *upage, struct thread* owner)
 
     upage_list = &temp_frame->upage_list;
 
+    //if the reserved upage is only one, just free frame and kpage.
     if (list_size (upage_list) == 1)
     {
         upage_temp = list_entry (list_begin (upage_list), struct upage_for_frame_table,
@@ -329,7 +349,7 @@ delete_upage_from_frame_and_swap_table (void *upage, struct thread* owner)
         else
             PANIC ("Not valid deletion");
     }
-    else
+    else //if other upage is using it, then jsut delete the upage from the list.
     {
         l_elem = find_elem_in_upage_list(upage_list, upage, owner);
         if(!l_elem)
@@ -400,6 +420,8 @@ delete_frame_from_frame_table (void *kpage)
 
 
 
+//find victim kpage using some algorithm.
+//if frame->pin == true, pass it.
 static struct frame*
 find_victim ()
 {
@@ -457,7 +479,7 @@ find_victim ()
 }
 
 
-
+//After find a victim kpage, clear it while do not changing kpage and replace the frame element.
 static struct frame*
 do_eviction (struct frame* frame)
 {
@@ -486,6 +508,7 @@ do_eviction (struct frame* frame)
     return frame;
 }
 
+//check access bit for the upages and kpage.
 bool
 check_and_set_accesse_for_frame (struct frame *f)
 {
@@ -518,6 +541,7 @@ check_and_set_accesse_for_frame (struct frame *f)
     return ret;
 }
 
+//check dirty bit for upages and kpage.
 bool
 check_and_set_dirty_for_frame (struct frame *f)
 {
@@ -548,6 +572,8 @@ check_and_set_dirty_for_frame (struct frame *f)
     return ret;
 }
 
+//disconnect upages and kpage.
+//This should be done in interrupt disabled state.
 void
 clear_target_pte (struct frame *f)
 {
